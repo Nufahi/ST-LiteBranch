@@ -1,0 +1,43 @@
+{
+    "app.title": "LiteBranch",
+
+    "btn.message": "Create a lightweight branch from here",
+
+    "dlg.title": "Create a lightweight branch",
+    "dlg.intro": "Start a fresh, fast chat that keeps only the most recent messages, counting back from the one you picked. The original chat is never touched — think of it as your full archive.",
+    "dlg.count": "Messages to carry over",
+    "dlg.countHint": "How many messages (from the selected one, going back) to copy into the new chat.",
+    "dlg.range": "Will copy messages #{from}–#{to} ({n} total).",
+    "dlg.rangeAll": "Will copy all {n} messages (the chat is shorter than the requested count).",
+    "dlg.summary": "Add an AI summary of the older part",
+    "dlg.summaryHint": "Asks the model to summarize everything before the carried-over messages and pins it as the first message of the branch, so context isn't lost.",
+    "dlg.create": "Create branch",
+    "dlg.cancel": "Cancel",
+
+    "summary.header": "[ Story so far — summary of earlier events ]",
+    "summary.working": "Summarizing the earlier part…",
+
+    "toast.noChat": "Open a chat first.",
+    "toast.groupUnsupported": "Group chats aren't supported yet — only single-character chats.",
+    "toast.empty": "There are no messages to branch from.",
+    "toast.badCount": "Enter a number of messages greater than 0.",
+    "toast.creating": "Creating branch…",
+    "toast.done": "Branch created — {n} messages carried over.",
+    "toast.failed": "Couldn't create the branch. See the console for details.",
+    "toast.summaryFailed": "Couldn't generate the summary — created the branch without it.",
+
+    "set.intro": "Huge chats (tens of MB) lag hard even when only a few messages are shown. LiteBranch spins off a small, snappy new chat that keeps just the last N messages, so you can keep roleplaying without the lag. Your original chat stays intact as an archive.",
+    "set.defaultCount": "Default message count",
+    "set.defaultCountDesc": "Pre-filled value in the branch dialog and used by the /litebranch command.",
+    "set.askEveryTime": "Show the dialog before branching",
+    "set.askEveryTimeDesc": "When off, the message button branches instantly using the default count.",
+    "set.summaryDefault": "Summarize the older part by default",
+    "set.summaryDefaultDesc": "Pre-checks the summary option in the dialog.",
+    "set.summaryHeading": "AI summary",
+    "set.summaryPrompt": "Summary instruction",
+    "set.summaryPromptHint": "Sent to the model along with the older messages. Keep it short and clear.",
+    "set.summaryLimit": "Max characters of history to summarize",
+    "set.summaryLimitHint": "The older part is trimmed to this many characters (from the end) before summarizing, to avoid blowing up the context.",
+    "set.nameTemplate": "Branch name template",
+    "set.nameTemplateHint": "Placeholders: {chat} = source chat name, {date} = timestamp, {mes} = message id."
+}

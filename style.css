@@ -1,0 +1,158 @@
+/* ============================================================
+ * LiteBranch for SillyTavern
+ * ============================================================ */
+
+.stlb-hidden { display: none !important; }
+
+:root {
+    --stlb-bg: var(--SmartThemeBlurTintColor, var(--SmartThemeBotMesBlurTintColor, #1a1a1a));
+    --stlb-fg: var(--SmartThemeBodyColor, #e6e6e6);
+    --stlb-border: var(--SmartThemeBorderColor, rgba(255, 255, 255, 0.12));
+    --stlb-accent: var(--SmartThemeQuoteColor, #5aa9ff);
+    --stlb-surface: rgba(255, 255, 255, 0.04);
+    --stlb-muted: color-mix(in srgb, var(--stlb-fg) 55%, transparent);
+}
+
+/* ============================================================
+ * MESSAGE BUTTON
+ * ============================================================ */
+.stlb_mes_button {
+    cursor: pointer;
+    transition: color 0.15s ease, transform 0.15s ease;
+}
+.stlb_mes_button:hover {
+    color: var(--stlb-accent);
+    transform: translateY(-1px);
+}
+
+/* ============================================================
+ * BRANCH DIALOG (inside ST Popup)
+ * ============================================================ */
+.stlb-dialog {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    text-align: left;
+    color: var(--stlb-fg);
+    max-width: min(560px, calc(100vw - 40px));
+}
+.stlb-intro {
+    font-size: 0.9em;
+    line-height: 1.5;
+    color: var(--stlb-muted);
+}
+.stlb-field {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+.stlb-label {
+    font-weight: 600;
+    font-size: 0.95em;
+}
+.stlb-hint {
+    font-size: 0.82em;
+    line-height: 1.4;
+    color: var(--stlb-muted);
+}
+.stlb-field .text_pole {
+    width: 100%;
+    max-width: 160px;
+}
+.stlb-range {
+    padding: 9px 12px;
+    border: 1px solid var(--stlb-border);
+    border-left: 3px solid var(--stlb-accent);
+    border-radius: 10px;
+    background: var(--stlb-surface);
+    font-size: 0.88em;
+    line-height: 1.4;
+}
+.stlb-check {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 10px 12px;
+    border: 1px solid var(--stlb-border);
+    border-radius: 10px;
+    background: var(--stlb-surface);
+    cursor: pointer;
+}
+.stlb-check input[type="checkbox"] {
+    margin-top: 3px;
+    flex: 0 0 auto;
+}
+.stlb-check-text {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+/* ============================================================
+ * SETTINGS CARD (Extensions tab)
+ * ============================================================ */
+.stlb_settings_card {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding: 6px 2px 4px;
+    color: var(--stlb-fg);
+}
+.stlb_settings_intro {
+    font-size: 0.86em;
+    line-height: 1.5;
+    color: var(--stlb-muted);
+}
+.stlb_settings_section {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--stlb-border);
+}
+.stlb_settings_heading {
+    font-weight: 700;
+    font-size: 0.92em;
+    letter-spacing: 0.02em;
+    opacity: 0.9;
+}
+.stlb_set_row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+}
+.stlb_set_toggle {
+    cursor: pointer;
+}
+.stlb_set_text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+.stlb_set_label {
+    font-weight: 600;
+    font-size: 0.92em;
+}
+.stlb_set_desc {
+    font-size: 0.8em;
+    line-height: 1.4;
+    color: var(--stlb-muted);
+}
+.stlb_set_block {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+.stlb_num {
+    width: 110px;
+    flex: 0 0 auto;
+    text-align: center;
+}
+.stlb_textarea {
+    width: 100%;
+    resize: vertical;
+    min-height: 70px;
+    line-height: 1.45;
+}
