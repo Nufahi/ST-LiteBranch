@@ -3,6 +3,17 @@
 
     "btn.message": "Create a lightweight branch from here",
 
+    "pin.buttonAdd": "Pin message",
+    "pin.buttonRemove": "Unpin message",
+    "pin.heading": "{name} · {current} of {total}",
+    "pin.empty": "Empty message",
+    "pin.unknown": "Message",
+    "pin.jump": "Jump to pinned message",
+    "pin.prev": "Previous pinned message",
+    "pin.next": "Next pinned message",
+    "pin.remove": "Unpin current message",
+    "pin.saveFailed": "Could not save pinned messages.",
+
     "dlg.title": "Create a lightweight branch",
     "dlg.intro": "Start a fresh, fast chat that keeps only the most recent messages, counting back from the one you picked. The original chat is never touched — think of it as your full archive.",
     "dlg.count": "Messages to carry over",

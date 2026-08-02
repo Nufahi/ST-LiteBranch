@@ -20,9 +20,124 @@
     cursor: pointer;
     transition: color 0.15s ease, transform 0.15s ease;
 }
+.stlb_mes_button .stlb-split-icon,
+.stlb-settings-icon .stlb-split-icon {
+    display: block;
+    width: 1em;
+    height: 1em;
+}
+.stlb_mes_button .stlb-split-icon {
+    pointer-events: none;
+}
+.stlb-settings-icon {
+    display: inline-flex;
+    vertical-align: -0.12em;
+}
 .stlb_mes_button:hover {
     color: var(--stlb-accent);
     transform: translateY(-1px);
+}
+.stlb_pin_button {
+    cursor: pointer;
+    transition: color 0.15s ease, transform 0.15s ease;
+}
+.stlb_pin_button:hover,
+.stlb_pin_button.stlb-pinned {
+    color: var(--stlb-accent);
+}
+.stlb_pin_button.stlb-pinned {
+    transform: rotate(-25deg);
+}
+
+/* ============================================================
+ * PINNED MESSAGE NAVIGATOR
+ * ============================================================ */
+.stlb-pin-nav {
+    display: flex;
+    align-items: stretch;
+    flex: 0 0 auto;
+    gap: 4px;
+    min-height: 48px;
+    padding: 5px 7px;
+    border: 1px solid var(--stlb-border);
+    border-bottom: 0;
+    border-radius: 10px 10px 0 0;
+    background: color-mix(in srgb, var(--stlb-bg) 94%, transparent);
+    backdrop-filter: blur(var(--SmartThemeBlurStrength, 10px));
+    color: var(--stlb-fg);
+    z-index: 31;
+}
+.stlb-pin-main,
+.stlb-pin-action {
+    border: 0;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+}
+.stlb-pin-main {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+    flex: 1 1 auto;
+    padding: 3px 7px;
+    text-align: left;
+}
+.stlb-pin-main > i {
+    flex: 0 0 auto;
+    color: var(--stlb-accent);
+    transform: rotate(-25deg);
+}
+.stlb-pin-copy {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 2px;
+}
+.stlb-pin-heading,
+.stlb-pin-preview {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.stlb-pin-heading {
+    color: var(--stlb-accent);
+    font-size: 0.78em;
+    font-weight: 700;
+}
+.stlb-pin-preview {
+    font-size: 0.86em;
+    opacity: 0.82;
+}
+.stlb-pin-actions {
+    display: flex;
+    align-items: center;
+    flex: 0 0 auto;
+}
+.stlb-pin-action {
+    width: 30px;
+    padding: 0;
+    opacity: 0.65;
+}
+.stlb-pin-action:hover {
+    color: var(--stlb-accent);
+    opacity: 1;
+}
+.stlb-pin-highlight {
+    animation: stlb-pin-flash 1.8s ease-out;
+}
+@keyframes stlb-pin-flash {
+    0%, 25% { background: color-mix(in srgb, var(--stlb-accent) 32%, transparent); }
+    100% { background: transparent; }
+}
+@media (prefers-reduced-motion: reduce) {
+    .stlb-pin-highlight { animation: none; }
+}
+
+@media (max-width: 600px) {
+    .stlb-pin-nav { min-height: 44px; padding-inline: 4px; }
+    .stlb-pin-main { gap: 7px; padding-inline: 5px; }
+    .stlb-pin-action { width: 27px; }
 }
 
 /* ============================================================

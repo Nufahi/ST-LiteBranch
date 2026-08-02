@@ -113,6 +113,17 @@ jQuery(async function () {
         console.log(`${LOG_PREFIX} ${msg}`);
     }
     function clamp(n, lo, hi) { return Math.max(lo, Math.min(hi, n)); }
+    function createUid() {
+        if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
+        return `stlb-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+    }
+
+    const SPLIT_ICON_HTML = `
+        <svg class="stlb-split-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M16 3h5v5"></path><path d="M8 3H3v5"></path>
+            <path d="M12 22v-8.3a4 4 0 0 0-1.172-2.872L3 3"></path><path d="m15 9 6-6"></path>
+        </svg>`;
 
     // Sanitize a value for use as a chat file name (mirrors ST's own rules:
     // no path separators or characters that break the file system).
@@ -212,7 +223,7 @@ jQuery(async function () {
 
     // Save an arbitrary message array under a new chat file for the current
     // character via the server endpoint, then open it. Solo chats only.
-    async function saveAndOpenBranch(branchName, messages, sourceName) {
+    async function saveAndOpenBranch(branchName, messages, sourceName, pinnedUids = []) {
         const c = ctx();
         const char = c.characters?.[c.characterId];
         if (!char) throw new Error('No active character.');
@@ -227,6 +238,11 @@ jQuery(async function () {
                 count: messages.length,
             },
         };
+        if (pinnedUids.length) {
+            metadata[SETTINGS_KEY] = {
+                pinnedMessages: pinnedUids.map(uid => ({ uid, pinnedAt: Date.now() })),
+            };
+        }
         const chatHeader = {
             chat_metadata: metadata,
             user_name: 'unused',
@@ -278,11 +294,14 @@ jQuery(async function () {
         const carried = structuredClone(chat.slice(start, end + 1));
 
         let messages = carried;
+        const pinnedUids = [];
         if (withSummary) {
             let summaryMsg = null;
             try { summaryMsg = await makeSummaryMessage(start); }
             catch (e) { console.error(`${LOG_PREFIX}`, e); }
             if (summaryMsg) {
+                summaryMsg.stlb_uid = createUid();
+                pinnedUids.push(summaryMsg.stlb_uid);
                 messages = [summaryMsg, ...carried];
             } else if (start > 0) {
                 toast(t('toast.summaryFailed'), 'warning');
@@ -291,7 +310,7 @@ jQuery(async function () {
 
         const branchName = buildBranchName(mesId);
         try {
-            await saveAndOpenBranch(branchName, messages, sourceName);
+            await saveAndOpenBranch(branchName, messages, sourceName, pinnedUids);
         } catch (e) {
             console.error(`${LOG_PREFIX} createBranch failed`, e);
             toast(t('toast.failed'), 'error');
@@ -389,33 +408,335 @@ jQuery(async function () {
     }
 
     // =====================================================================
+    // PINNED MESSAGES
+    // =====================================================================
+    const PIN_META_KEY = SETTINGS_KEY;
+    const PIN_BTN_CLASS = 'stlb_pin_button';
+    const NAV_ID = 'stlb-pin-nav';
+    let activePinIndex = 0;
+    let jumpToken = 0;
+    let reconcileRunning = false;
+    let reconcilePending = false;
+
+    function hasActiveChat() {
+        const c = ctx();
+        const id = c.getCurrentChatId?.() ?? c.chatId;
+        return id !== undefined && id !== null && id !== '';
+    }
+
+    function getPinRecords() {
+        const records = ctx().chatMetadata?.[PIN_META_KEY]?.pinnedMessages;
+        if (!Array.isArray(records)) return [];
+        return records.filter(record => record && typeof record.uid === 'string');
+    }
+
+    function setPinRecords(records) {
+        const c = ctx();
+        const namespace = { ...(c.chatMetadata?.[PIN_META_KEY] || {}), pinnedMessages: records };
+        if (typeof c.updateChatMetadata === 'function') {
+            c.updateChatMetadata({ [PIN_META_KEY]: namespace }, false);
+        } else {
+            c.chatMetadata[PIN_META_KEY] = namespace;
+        }
+    }
+
+    async function persistPins() {
+        const c = ctx();
+        if (typeof c.saveMetadata === 'function') await c.saveMetadata();
+        else if (typeof c.saveChat === 'function') await c.saveChat();
+    }
+
+    function getMessageUid(message) {
+        return message?.stlb_uid || message?.extra?.stlb_uid || null;
+    }
+
+    function ensureMessageUid(message) {
+        if (!message.stlb_uid) message.stlb_uid = message.extra?.stlb_uid || createUid();
+        if (message.extra?.stlb_uid) delete message.extra.stlb_uid;
+        return message.stlb_uid;
+    }
+
+    function findMessageIndex(uid) {
+        return getChatArray().findIndex(message => getMessageUid(message) === uid);
+    }
+
+    function getResolvedPins() {
+        return getPinRecords()
+            .map(record => ({ record, messageIndex: findMessageIndex(record.uid) }))
+            .filter(pin => pin.messageIndex >= 0)
+            .sort((a, b) => a.messageIndex - b.messageIndex);
+    }
+
+    function messagePreview(message) {
+        return String(message?.mes || '')
+            .replace(/<[^>]*>/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim() || t('pin.empty');
+    }
+
+    function ensurePinNavigator() {
+        let nav = document.getElementById(NAV_ID);
+        if (nav) return nav;
+        const chatEl = document.getElementById('chat');
+        if (!chatEl?.parentElement) return null;
+
+        nav = document.createElement('div');
+        nav.id = NAV_ID;
+        nav.className = 'stlb-pin-nav stlb-hidden';
+        nav.innerHTML = `
+            <button type="button" class="stlb-pin-main interactable" data-stlb-pin-action="jump">
+                <i class="fa-solid fa-thumbtack" aria-hidden="true"></i>
+                <span class="stlb-pin-copy">
+                    <span class="stlb-pin-heading"></span>
+                    <span class="stlb-pin-preview"></span>
+                </span>
+            </button>
+            <span class="stlb-pin-actions">
+                <button type="button" class="stlb-pin-action interactable fa-solid fa-chevron-left"
+                    data-stlb-pin-action="prev"></button>
+                <button type="button" class="stlb-pin-action interactable fa-solid fa-chevron-right"
+                    data-stlb-pin-action="next"></button>
+                <button type="button" class="stlb-pin-action interactable fa-solid fa-xmark"
+                    data-stlb-pin-action="unpin"></button>
+            </span>`;
+        chatEl.parentElement.insertBefore(nav, chatEl);
+        return nav;
+    }
+
+    function renderPinNavigator() {
+        const nav = ensurePinNavigator();
+        if (!nav) return;
+        const pins = getResolvedPins();
+        nav.classList.toggle('stlb-hidden', pins.length === 0);
+        if (!pins.length) {
+            activePinIndex = 0;
+            return;
+        }
+
+        activePinIndex = clamp(activePinIndex, 0, pins.length - 1);
+        const pin = pins[activePinIndex];
+        const message = getChatArray()[pin.messageIndex];
+        nav.querySelector('.stlb-pin-heading').textContent = t('pin.heading', {
+            current: activePinIndex + 1,
+            total: pins.length,
+            name: message?.name || t('pin.unknown'),
+        });
+        nav.querySelector('.stlb-pin-preview').textContent = messagePreview(message);
+        nav.querySelector('[data-stlb-pin-action="jump"]').title = t('pin.jump');
+        nav.querySelector('[data-stlb-pin-action="prev"]').title = t('pin.prev');
+        nav.querySelector('[data-stlb-pin-action="next"]').title = t('pin.next');
+        nav.querySelector('[data-stlb-pin-action="unpin"]').title = t('pin.remove');
+        nav.querySelectorAll('[data-stlb-pin-action]').forEach(control => {
+            control.setAttribute('aria-label', control.title);
+        });
+    }
+
+    function refreshPinButtons() {
+        const pinned = new Set(getPinRecords().map(record => record.uid));
+        document.querySelectorAll(`#chat .mes[mesid] .${PIN_BTN_CLASS}`).forEach(button => {
+            const mesEl = button.closest('.mes[mesid]');
+            const message = getChatArray()[Number(mesEl?.getAttribute('mesid'))];
+            const isPinned = pinned.has(getMessageUid(message));
+            button.classList.toggle('stlb-pinned', isPinned);
+            button.title = t(isPinned ? 'pin.buttonRemove' : 'pin.buttonAdd');
+            button.setAttribute('aria-label', button.title);
+            button.setAttribute('aria-pressed', String(isPinned));
+        });
+    }
+
+    async function togglePin(messageIndex, forceRemove = false) {
+        const message = getChatArray()[messageIndex];
+        if (!message || !hasActiveChat()) return;
+        const records = getPinRecords();
+        const existingUid = getMessageUid(message);
+        const existingIndex = records.findIndex(record => record.uid === existingUid);
+
+        if (existingIndex >= 0 || forceRemove) {
+            if (existingIndex < 0) return;
+            records.splice(existingIndex, 1);
+            activePinIndex = Math.max(0, activePinIndex - 1);
+        } else {
+            const uid = ensureMessageUid(message);
+            records.push({ uid, pinnedAt: Date.now() });
+        }
+
+        setPinRecords(records);
+        renderPinNavigator();
+        refreshPinButtons();
+        try { await persistPins(); }
+        catch (error) {
+            console.error(`${LOG_PREFIX} pin save failed`, error);
+            toast(t('pin.saveFailed'), 'error');
+        }
+    }
+
+    async function reconcilePins() {
+        if (reconcileRunning) {
+            reconcilePending = true;
+            return;
+        }
+        if (!hasActiveChat()) return;
+        reconcileRunning = true;
+        reconcilePending = false;
+        try {
+            const chat = getChatArray();
+            const records = getPinRecords();
+            const pinnedUids = new Set(records.map(record => record.uid));
+            const seen = new Set();
+            let messagesChanged = false;
+
+            for (const message of chat) {
+                const uid = getMessageUid(message);
+                if (!uid) continue;
+                if (!message.stlb_uid) {
+                    message.stlb_uid = uid;
+                    if (message.extra?.stlb_uid) delete message.extra.stlb_uid;
+                    messagesChanged = true;
+                }
+                if (seen.has(uid)) {
+                    message.stlb_uid = createUid();
+                    messagesChanged = true;
+                } else {
+                    seen.add(uid);
+                }
+            }
+
+            const existingUids = new Set(chat.map(getMessageUid).filter(Boolean));
+            const validRecords = records.filter(record => existingUids.has(record.uid));
+            const metadataChanged = validRecords.length !== records.length
+                || validRecords.some(record => !pinnedUids.has(record.uid));
+            if (metadataChanged) setPinRecords(validRecords);
+            if (messagesChanged || metadataChanged) await persistPins();
+        } catch (error) {
+            console.error(`${LOG_PREFIX} pin reconciliation failed`, error);
+        } finally {
+            reconcileRunning = false;
+            renderPinNavigator();
+            refreshPinButtons();
+            if (reconcilePending) reconcilePins();
+        }
+    }
+
+    function waitForMoreMessages(token) {
+        return new Promise(resolve => {
+            const evt = event_types.MORE_MESSAGES_LOADED;
+            if (!evt || !eventSource?.on) { resolve(false); return; }
+            let settled = false;
+            const finish = value => {
+                if (settled) return;
+                settled = true;
+                clearTimeout(timeout);
+                eventSource.removeListener?.(evt, handler);
+                resolve(value);
+            };
+            const handler = () => finish(token === jumpToken);
+            const timeout = setTimeout(() => finish(false), 3000);
+            eventSource.on(evt, handler);
+        });
+    }
+
+    async function jumpToPin(pin) {
+        const token = ++jumpToken;
+        const chatId = ctx().getCurrentChatId?.() ?? ctx().chatId;
+        let messageIndex = findMessageIndex(pin.record.uid);
+        if (messageIndex < 0) { await reconcilePins(); return; }
+
+        let target = document.querySelector(`#chat .mes[mesid="${messageIndex}"]`);
+        while (!target) {
+            const more = document.getElementById('show_more_messages');
+            if (!more || token !== jumpToken) return;
+            const loaded = waitForMoreMessages(token);
+            more.click();
+            if (!await loaded) return;
+            if ((ctx().getCurrentChatId?.() ?? ctx().chatId) !== chatId || token !== jumpToken) return;
+            messageIndex = findMessageIndex(pin.record.uid);
+            target = document.querySelector(`#chat .mes[mesid="${messageIndex}"]`);
+        }
+
+        target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        target.classList.remove('stlb-pin-highlight');
+        void target.offsetWidth;
+        target.classList.add('stlb-pin-highlight');
+        later(() => target.classList.remove('stlb-pin-highlight'), 1800);
+    }
+
+    async function onPinNavigatorClick(e) {
+        const control = e.target.closest('[data-stlb-pin-action]');
+        if (!control) return;
+        const pins = getResolvedPins();
+        if (!pins.length) return;
+        const action = control.dataset.stlbPinAction;
+        if (action === 'prev') activePinIndex = (activePinIndex - 1 + pins.length) % pins.length;
+        if (action === 'next') activePinIndex = (activePinIndex + 1) % pins.length;
+        if (action === 'unpin') {
+            await togglePin(pins[activePinIndex].messageIndex, true);
+            return;
+        }
+        renderPinNavigator();
+        if (action === 'jump' || action === 'prev' || action === 'next') {
+            await jumpToPin(getResolvedPins()[activePinIndex]);
+        }
+    }
+
+    // =====================================================================
     // MESSAGE BUTTON (in .extraMesButtons of every message)
     // =====================================================================
     const BTN_CLASS = 'stlb_mes_button';
 
     function injectButton(mesEl) {
         if (!(mesEl instanceof HTMLElement)) return;
-        if (isGroup()) return; // solo only
         const holder = mesEl.querySelector('.extraMesButtons');
-        if (!holder || holder.querySelector('.' + BTN_CLASS)) return;
-        const btn = document.createElement('div');
-        btn.className = `${BTN_CLASS} mes_button fa-solid fa-code-branch interactable`;
-        btn.title = t('btn.message');
-        btn.tabIndex = 0;
-        holder.prepend(btn);
+        if (!holder) return;
+
+        if (!holder.querySelector('.' + PIN_BTN_CLASS)) {
+            const pin = document.createElement('div');
+            pin.className = `${PIN_BTN_CLASS} mes_button fa-solid fa-thumbtack interactable`;
+            pin.title = t('pin.buttonAdd');
+            pin.tabIndex = 0;
+            pin.setAttribute('role', 'button');
+            pin.setAttribute('aria-label', pin.title);
+            pin.setAttribute('aria-pressed', 'false');
+            holder.prepend(pin);
+        }
+
+        if (!isGroup() && !holder.querySelector('.' + BTN_CLASS)) {
+            const btn = document.createElement('div');
+            btn.className = `${BTN_CLASS} mes_button interactable`;
+            btn.innerHTML = SPLIT_ICON_HTML;
+            btn.title = t('btn.message');
+            btn.tabIndex = 0;
+            btn.setAttribute('role', 'button');
+            btn.setAttribute('aria-label', btn.title);
+            holder.prepend(btn);
+        }
     }
 
     function injectAllButtons() {
-        if (isGroup()) return;
         document.querySelectorAll('#chat .mes[mesid] .extraMesButtons').forEach(h => {
             injectButton(h.closest('.mes'));
         });
+        refreshPinButtons();
     }
 
     // Delegated click handler for the message button.
     function onChatClick(e) {
         const target = e.target;
         if (!(target instanceof Element)) return;
+        if (target.closest(`#${NAV_ID}`)) {
+            e.preventDefault();
+            e.stopPropagation();
+            onPinNavigatorClick(e);
+            return;
+        }
+        const pin = target.closest('.' + PIN_BTN_CLASS);
+        if (pin) {
+            e.preventDefault();
+            e.stopPropagation();
+            const mesEl = pin.closest('.mes[mesid]');
+            const mesId = Number(mesEl?.getAttribute('mesid'));
+            if (Number.isInteger(mesId)) togglePin(mesId);
+            return;
+        }
         const btn = target.closest('.' + BTN_CLASS);
         if (!btn) return;
         e.preventDefault();
@@ -425,6 +746,15 @@ jQuery(async function () {
         const mesId = parseInt(mesEl.getAttribute('mesid'), 10);
         if (Number.isNaN(mesId)) return;
         branchFromMessage(mesId);
+    }
+
+    function onChatKeydown(e) {
+        if (e.key !== 'Enter' && e.key !== ' ') return;
+        const target = e.target;
+        if (!(target instanceof Element)) return;
+        if (!target.closest(`.${BTN_CLASS}, .${PIN_BTN_CLASS}`)) return;
+        e.preventDefault();
+        target.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     }
 
     // =====================================================================
@@ -438,7 +768,7 @@ jQuery(async function () {
         <div id="stlb-settings" class="stlb-settings">
             <div class="inline-drawer">
                 <div class="inline-drawer-toggle inline-drawer-header">
-                    <b><i class="fa-solid fa-code-branch"></i> ${t('app.title')}</b>
+                    <b><span class="stlb-settings-icon">${SPLIT_ICON_HTML}</span> ${t('app.title')}</b>
                     <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
                 </div>
                 <div class="inline-drawer-content">
@@ -523,28 +853,61 @@ jQuery(async function () {
     // EVENT WIRING
     // =====================================================================
     const boundHandlers = [];
+    const timers = new Set();
     function on(evt, fn) {
         if (!evt || !eventSource || typeof eventSource.on !== 'function') return;
         eventSource.on(evt, fn);
         boundHandlers.push([evt, fn]);
     }
 
+    function later(fn, delay) {
+        const timer = setTimeout(() => {
+            timers.delete(timer);
+            fn();
+        }, delay);
+        timers.add(timer);
+        return timer;
+    }
+
     document.addEventListener('click', onChatClick, true);
+    document.addEventListener('keydown', onChatKeydown, true);
 
     const reinjectDebounced = (() => {
         let tmr = null;
-        return () => { clearTimeout(tmr); tmr = setTimeout(injectAllButtons, 80); };
+        return () => {
+            if (tmr) {
+                clearTimeout(tmr);
+                timers.delete(tmr);
+            }
+            tmr = later(() => {
+                tmr = null;
+                injectAllButtons();
+                renderPinNavigator();
+            }, 80);
+        };
+    })();
+
+    const reconcileDebounced = (() => {
+        let tmr = null;
+        return () => {
+            if (tmr) {
+                clearTimeout(tmr);
+                timers.delete(tmr);
+            }
+            tmr = later(() => {
+                tmr = null;
+                reconcilePins();
+            }, 120);
+        };
     })();
 
     on(event_types.CHARACTER_MESSAGE_RENDERED, (idx) => {
-        if (isGroup()) return;
         if (typeof idx === 'number') {
             const el = document.querySelector(`#chat .mes[mesid="${idx}"]`);
             if (el) injectButton(el);
         } else { reinjectDebounced(); }
     });
     on(event_types.USER_MESSAGE_RENDERED, (idx) => {
-        if (isGroup()) return;
         if (typeof idx === 'number') {
             const el = document.querySelector(`#chat .mes[mesid="${idx}"]`);
             if (el) injectButton(el);
@@ -552,10 +915,31 @@ jQuery(async function () {
     });
     on(event_types.MORE_MESSAGES_LOADED, reinjectDebounced);
     on(event_types.MESSAGE_SWIPED, reinjectDebounced);
-    on(event_types.MESSAGE_EDITED, reinjectDebounced);
-    on(event_types.MESSAGE_UPDATED, reinjectDebounced);
-    on(event_types.CHAT_CHANGED, reinjectDebounced);
-    on(event_types.APP_READY, reinjectDebounced);
+    on(event_types.MESSAGE_EDITED, () => { reinjectDebounced(); renderPinNavigator(); });
+    on(event_types.MESSAGE_UPDATED, () => { reinjectDebounced(); renderPinNavigator(); });
+    on(event_types.MESSAGE_DELETED, reconcileDebounced);
+    on(event_types.MESSAGE_SENT, reconcileDebounced);
+    on(event_types.MESSAGE_RECEIVED, reconcileDebounced);
+    on(event_types.CHAT_CHANGED, () => {
+        jumpToken++;
+        activePinIndex = 0;
+        reinjectDebounced();
+        reconcileDebounced();
+    });
+    on(event_types.APP_READY, () => { reinjectDebounced(); reconcileDebounced(); });
+
+    const chatObserver = new MutationObserver(mutations => {
+        const relevant = mutations.some(mutation => mutation.type === 'childList'
+            || (mutation.type === 'attributes' && mutation.attributeName === 'mesid'));
+        if (relevant) {
+            reinjectDebounced();
+            reconcileDebounced();
+        }
+    });
+    const observedChat = document.getElementById('chat');
+    if (observedChat) {
+        chatObserver.observe(observedChat, { childList: true, subtree: true, attributes: true, attributeFilter: ['mesid'] });
+    }
 
     // =====================================================================
     // SLASH COMMAND — /litebranch [N] [mes=id] [summary=on|off]
@@ -618,7 +1002,11 @@ jQuery(async function () {
     // =====================================================================
     await loadI18n();
     addSettingsCard();
-    setTimeout(injectAllButtons, 600);
+    ensurePinNavigator();
+    later(() => {
+        injectAllButtons();
+        reconcilePins();
+    }, 600);
 
     console.log(`${LOG_PREFIX} initialized.`);
 
@@ -630,8 +1018,15 @@ jQuery(async function () {
             boundHandlers.forEach(([evt, fn]) => {
                 try { eventSource.removeListener?.(evt, fn); } catch (_) { /* noop */ }
             });
+            jumpToken++;
+            chatObserver.disconnect();
+            timers.forEach(timer => clearTimeout(timer));
+            timers.clear();
             document.removeEventListener('click', onChatClick, true);
-            document.querySelectorAll('.' + BTN_CLASS).forEach(el => el.remove());
+            document.removeEventListener('keydown', onChatKeydown, true);
+            document.querySelectorAll(`.${BTN_CLASS}, .${PIN_BTN_CLASS}`).forEach(el => el.remove());
+            document.querySelectorAll('.stlb-pin-highlight').forEach(el => el.classList.remove('stlb-pin-highlight'));
+            document.getElementById(NAV_ID)?.remove();
             $('#stlb-settings').remove();
         } catch (e) { console.error(`${LOG_PREFIX} dispose error`, e); }
         window.__stLiteBranchInitialized = false;

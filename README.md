@@ -10,9 +10,12 @@ Your original chat is **never modified** — treat it as your full archive.
 
 ## Features
 
-- **Branch from any message.** Every message gets a branch button
-  (🜲 `fa-code-branch`) in its button row. It builds a new chat from that
+- **Branch from any message.** Every message gets a distinctive split-arrow
+  button in its button row. It builds a new chat from that
   message backwards.
+- **Pin messages.** Pin any number of messages and use the compact bar above
+  the chat to jump between them. Old messages are loaded automatically when
+  needed, and pins stay attached when surrounding messages move or are deleted.
 - **Pick how many messages** to carry over — a dialog with a live preview
   ("will copy messages #120–#170"), pre-filled from your default (50).
 - **One-click mode.** Turn off the dialog in settings and the button branches
@@ -23,11 +26,15 @@ Your original chat is **never modified** — treat it as your full archive.
   configurable.
 - **Slash command** `/litebranch` for Quick Replies and automation.
 - **English / Русский** UI (follows SillyTavern's language setting).
+- **Group chat pins.** Pinning and navigation work in group chats too; creating
+  lightweight branches remains limited to single-character chats.
 
 ## Usage
 
 - **Button:** open a message's button row and tap the branch icon. The branch
   goes back `N` messages from that one, then opens automatically.
+- **Pins:** tap the thumbtack in a message's button row. Use the bar above the
+  chat to move between pins, jump to one, or remove it.
 - **Slash command:**
   - `/litebranch` — last N (your default) from the last message.
   - `/litebranch 80` — last 80 messages.
