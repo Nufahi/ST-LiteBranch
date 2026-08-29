@@ -14,6 +14,8 @@
     "pin.remove": "Unpin current message",
     "pin.saveFailed": "Could not save pinned messages.",
 
+    "chat.jumpBottom": "Jump to latest message",
+
     "dlg.title": "Create a lightweight branch",
     "dlg.intro": "Start a fresh, fast chat that keeps only the most recent messages, counting back from the one you picked. The original chat is never touched — think of it as your full archive.",
     "dlg.count": "Messages to carry over",
@@ -25,7 +27,7 @@
     "dlg.create": "Create branch",
     "dlg.cancel": "Cancel",
 
-    "summary.header": "[ Story so far — summary of earlier events ]",
+    "summary.header": "[ Story so far ]",
     "summary.working": "Summarizing the earlier part…",
 
     "toast.noChat": "Open a chat first.",
@@ -46,7 +48,7 @@
     "set.summaryDefaultDesc": "Pre-checks the summary option in the dialog.",
     "set.summaryHeading": "AI summary",
     "set.summaryPrompt": "Summary instruction",
-    "set.summaryPromptHint": "Sent to the model along with the older messages. Keep it short and clear.",
+    "set.summaryPromptHint": "Sent to the model with the older messages. Keep both the instruction and requested output in English for best results.",
     "set.summaryLimit": "Max characters of history to summarize",
     "set.summaryLimitHint": "The older part is trimmed to this many characters (from the end) before summarizing, to avoid blowing up the context.",
     "set.nameTemplate": "Branch name template",

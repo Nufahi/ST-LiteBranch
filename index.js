@@ -63,11 +63,19 @@ jQuery(async function () {
     // ---------------------------------------------------------------------
     // Settings + storage
     // ---------------------------------------------------------------------
-    const DEFAULT_SUMMARY_PROMPT =
+    const LEGACY_SUMMARY_PROMPT =
         'Summarize the roleplay so far in a concise recap that preserves the important '
         + 'facts, relationships, ongoing plot threads and the current situation. '
         + 'Write it as neutral notes, not as a message in character. Do not add anything '
         + 'that did not happen.';
+    const DEFAULT_SUMMARY_PROMPT =
+        'Write a compact English continuity summary of the roleplay transcript for use as context '
+        + 'in a continued chat. Preserve established facts, character identities and relationships, '
+        + 'important decisions, promises, inventory or status changes, unresolved goals, and the '
+        + 'current location and situation. Give recent and ongoing events priority over obsolete detail. '
+        + 'Use dense, clear bullet points. Do not roleplay, address the user, mention the transcript, '
+        + 'or invent information. Output only the summary in English.';
+    const SUMMARY_HEADER = '[ Story so far ]';
 
     const DEFAULT_SETTINGS = {
         defaultCount: 50,
@@ -87,7 +95,10 @@ jQuery(async function () {
         if (!Number.isFinite(s.defaultCount) || s.defaultCount < 1) s.defaultCount = 50;
         if (typeof s.askEveryTime !== 'boolean') s.askEveryTime = true;
         if (typeof s.summaryDefault !== 'boolean') s.summaryDefault = false;
-        if (typeof s.summaryPrompt !== 'string' || !s.summaryPrompt.trim()) s.summaryPrompt = DEFAULT_SUMMARY_PROMPT;
+        if (typeof s.summaryPrompt !== 'string' || !s.summaryPrompt.trim()
+            || s.summaryPrompt.trim() === LEGACY_SUMMARY_PROMPT) {
+            s.summaryPrompt = DEFAULT_SUMMARY_PROMPT;
+        }
         if (!Number.isFinite(s.summaryLimit) || s.summaryLimit < 500) s.summaryLimit = 12000;
         if (typeof s.nameTemplate !== 'string' || !s.nameTemplate.trim()) s.nameTemplate = DEFAULT_SETTINGS.nameTemplate;
         return s;
@@ -197,7 +208,7 @@ jQuery(async function () {
             text = '…\n' + text.slice(text.length - s.summaryLimit);
         }
 
-        const prompt = `${s.summaryPrompt}\n\n---\n${text}\n---`;
+        const prompt = `${s.summaryPrompt}\n\nReturn only the final summary in English.\n\n---\n${text}\n---`;
 
         let summary = '';
         try {
@@ -216,7 +227,7 @@ jQuery(async function () {
             is_user: false,
             is_system: false, // false so it DOES get sent to the model as context
             send_date: now,
-            mes: `${t('summary.header')}\n\n${summary}`,
+            mes: `${SUMMARY_HEADER}\n\n${summary}`,
             extra: { litebranch_summary: true },
         };
     }
@@ -413,6 +424,7 @@ jQuery(async function () {
     const PIN_META_KEY = SETTINGS_KEY;
     const PIN_BTN_CLASS = 'stlb_pin_button';
     const NAV_ID = 'stlb-pin-nav';
+    const JUMP_BOTTOM_ID = 'stlb-jump-bottom';
     let activePinIndex = 0;
     let jumpToken = 0;
     let reconcileRunning = false;
@@ -526,9 +538,45 @@ jQuery(async function () {
         nav.querySelector('[data-stlb-pin-action="prev"]').title = t('pin.prev');
         nav.querySelector('[data-stlb-pin-action="next"]').title = t('pin.next');
         nav.querySelector('[data-stlb-pin-action="unpin"]').title = t('pin.remove');
+        nav.querySelector('[data-stlb-pin-action="prev"]').classList.toggle('stlb-hidden', pins.length === 1);
+        nav.querySelector('[data-stlb-pin-action="next"]').classList.toggle('stlb-hidden', pins.length === 1);
         nav.querySelectorAll('[data-stlb-pin-action]').forEach(control => {
             control.setAttribute('aria-label', control.title);
         });
+    }
+
+    function ensureJumpBottomButton() {
+        let button = document.getElementById(JUMP_BOTTOM_ID);
+        if (button) return button;
+        button = document.createElement('button');
+        button.id = JUMP_BOTTOM_ID;
+        button.type = 'button';
+        button.className = 'stlb-jump-bottom stlb-hidden interactable';
+        button.innerHTML = '<i class="fa-solid fa-chevron-down" aria-hidden="true"></i>';
+        button.title = t('chat.jumpBottom');
+        button.setAttribute('aria-label', button.title);
+        document.body.append(button);
+        return button;
+    }
+
+    function updateJumpBottomButton() {
+        const button = ensureJumpBottomButton();
+        const chatEl = document.getElementById('chat');
+        if (!button || !chatEl) return;
+        const distanceFromBottom = chatEl.scrollHeight - chatEl.scrollTop - chatEl.clientHeight;
+        const rect = chatEl.getBoundingClientRect();
+        const visible = hasActiveChat() && rect.width > 0 && rect.height > 0 && distanceFromBottom > 160;
+        button.classList.toggle('stlb-hidden', !visible);
+        if (!visible) return;
+        button.style.left = `${Math.min(window.innerWidth - 8, rect.right - 12)}px`;
+        button.style.top = `${Math.min(window.innerHeight - 8, rect.bottom - 12)}px`;
+    }
+
+    function jumpToBottom() {
+        const chatEl = document.getElementById('chat');
+        if (!chatEl) return;
+        const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+        chatEl.scrollTo({ top: chatEl.scrollHeight, behavior: reduceMotion ? 'auto' : 'smooth' });
     }
 
     function refreshPinButtons() {
@@ -802,24 +850,30 @@ jQuery(async function () {
                                 <input type="checkbox" id="stlb-set-summary" ${s.summaryDefault ? 'checked' : ''}>
                             </div>
 
-                            <div class="stlb_set_block">
-                                <div class="stlb_set_label">${escapeHtml(t('set.summaryPrompt'))}</div>
+                            <div class="stlb_set_row stlb_set_col">
+                                <div class="stlb_set_text">
+                                    <div class="stlb_set_label">${escapeHtml(t('set.summaryPrompt'))}</div>
+                                    <div class="stlb_set_desc">${escapeHtml(t('set.summaryPromptHint'))}</div>
+                                </div>
                                 <textarea id="stlb-set-prompt" class="text_pole stlb_textarea" rows="4">${escapeHtml(s.summaryPrompt)}</textarea>
-                                <div class="stlb_set_desc">${escapeHtml(t('set.summaryPromptHint'))}</div>
                             </div>
 
-                            <div class="stlb_set_block">
-                                <div class="stlb_set_label">${escapeHtml(t('set.summaryLimit'))}</div>
+                            <div class="stlb_set_row">
+                                <div class="stlb_set_text">
+                                    <div class="stlb_set_label">${escapeHtml(t('set.summaryLimit'))}</div>
+                                    <div class="stlb_set_desc">${escapeHtml(t('set.summaryLimitHint'))}</div>
+                                </div>
                                 <input type="number" min="500" step="500" id="stlb-set-limit" class="text_pole stlb_num" value="${s.summaryLimit}">
-                                <div class="stlb_set_desc">${escapeHtml(t('set.summaryLimitHint'))}</div>
                             </div>
                         </div>
 
                         <div class="stlb_settings_section">
-                            <div class="stlb_set_block">
-                                <div class="stlb_set_label">${escapeHtml(t('set.nameTemplate'))}</div>
+                            <div class="stlb_set_row stlb_set_col">
+                                <div class="stlb_set_text">
+                                    <div class="stlb_set_label">${escapeHtml(t('set.nameTemplate'))}</div>
+                                    <div class="stlb_set_desc">${escapeHtml(t('set.nameTemplateHint'))}</div>
+                                </div>
                                 <input type="text" id="stlb-set-name" class="text_pole" value="${escapeHtml(s.nameTemplate)}">
-                                <div class="stlb_set_desc">${escapeHtml(t('set.nameTemplateHint'))}</div>
                             </div>
                         </div>
                     </div>
@@ -871,6 +925,13 @@ jQuery(async function () {
 
     document.addEventListener('click', onChatClick, true);
     document.addEventListener('keydown', onChatKeydown, true);
+    const chatEl = document.getElementById('chat');
+    const jumpBottomButton = ensureJumpBottomButton();
+    const onChatScroll = () => updateJumpBottomButton();
+    const onWindowResize = () => updateJumpBottomButton();
+    chatEl?.addEventListener('scroll', onChatScroll, { passive: true });
+    jumpBottomButton?.addEventListener('click', jumpToBottom);
+    window.addEventListener('resize', onWindowResize, { passive: true });
 
     const reinjectDebounced = (() => {
         let tmr = null;
@@ -883,6 +944,7 @@ jQuery(async function () {
                 tmr = null;
                 injectAllButtons();
                 renderPinNavigator();
+                updateJumpBottomButton();
             }, 80);
         };
     })();
@@ -925,6 +987,7 @@ jQuery(async function () {
         activePinIndex = 0;
         reinjectDebounced();
         reconcileDebounced();
+        updateJumpBottomButton();
     });
     on(event_types.APP_READY, () => { reinjectDebounced(); reconcileDebounced(); });
 
@@ -1003,9 +1066,11 @@ jQuery(async function () {
     await loadI18n();
     addSettingsCard();
     ensurePinNavigator();
+    ensureJumpBottomButton();
     later(() => {
         injectAllButtons();
         reconcilePins();
+        updateJumpBottomButton();
     }, 600);
 
     console.log(`${LOG_PREFIX} initialized.`);
@@ -1024,9 +1089,13 @@ jQuery(async function () {
             timers.clear();
             document.removeEventListener('click', onChatClick, true);
             document.removeEventListener('keydown', onChatKeydown, true);
+            chatEl?.removeEventListener('scroll', onChatScroll);
+            jumpBottomButton?.removeEventListener('click', jumpToBottom);
+            window.removeEventListener('resize', onWindowResize);
             document.querySelectorAll(`.${BTN_CLASS}, .${PIN_BTN_CLASS}`).forEach(el => el.remove());
             document.querySelectorAll('.stlb-pin-highlight').forEach(el => el.classList.remove('stlb-pin-highlight'));
             document.getElementById(NAV_ID)?.remove();
+            document.getElementById(JUMP_BOTTOM_ID)?.remove();
             $('#stlb-settings').remove();
         } catch (e) { console.error(`${LOG_PREFIX} dispose error`, e); }
         window.__stLiteBranchInitialized = false;
