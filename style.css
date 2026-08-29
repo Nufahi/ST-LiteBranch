@@ -142,16 +142,18 @@
     width: 42px;
     height: 42px;
     padding: 0;
-    border: 1px solid color-mix(in srgb, var(--stlb-accent) 58%, var(--stlb-border) 42%);
-    border-radius: 50%;
-    background: color-mix(in srgb, var(--stlb-bg) 88%, var(--stlb-accent) 12%);
+    border: 0;
+    background: transparent;
     color: var(--stlb-accent);
+    font-size: 20px;
+    opacity: 0.82;
     cursor: pointer;
     touch-action: manipulation;
-    transition: color 0.15s ease, background 0.15s ease;
+    transition: color 0.15s ease, opacity 0.15s ease;
 }
 .stlb-jump-bottom:hover {
-    background: color-mix(in srgb, var(--stlb-bg) 74%, var(--stlb-accent) 26%);
+    color: var(--stlb-fg);
+    opacity: 1;
 }
 .stlb-jump-bottom:focus-visible,
 .stlb-pin-main:focus-visible,
