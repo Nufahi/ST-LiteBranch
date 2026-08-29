@@ -86,6 +86,7 @@ jQuery(async function () {
     const DEFAULT_SETTINGS = {
         defaultCount: 50,
         askEveryTime: true,
+        showJumpBottom: true,
         summaryDefault: false,
         summaryPrompt: DEFAULT_SUMMARY_PROMPT,
         summaryLimit: 12000,
@@ -100,6 +101,7 @@ jQuery(async function () {
         const s = c.extensionSettings[SETTINGS_KEY];
         if (!Number.isFinite(s.defaultCount) || s.defaultCount < 1) s.defaultCount = 50;
         if (typeof s.askEveryTime !== 'boolean') s.askEveryTime = true;
+        if (typeof s.showJumpBottom !== 'boolean') s.showJumpBottom = true;
         if (typeof s.summaryDefault !== 'boolean') s.summaryDefault = false;
         if (typeof s.summaryPrompt !== 'string' || !s.summaryPrompt.trim()
             || s.summaryPrompt.trim() === LEGACY_SUMMARY_PROMPT) {
@@ -636,19 +638,20 @@ jQuery(async function () {
 
     function ensureJumpBottomButton() {
         let button = document.getElementById(JUMP_BOTTOM_ID);
-        const chatEl = document.getElementById('chat');
-        const host = chatEl?.closest('#sheld') || chatEl?.parentElement;
-        if (!host) return null;
-        if (!button) {
-            button = document.createElement('button');
-            button.id = JUMP_BOTTOM_ID;
-            button.type = 'button';
-            button.className = 'stlb-jump-bottom stlb-hidden interactable';
-            button.innerHTML = '<i class="fa-solid fa-chevron-down" aria-hidden="true"></i>';
+        if (!getSettings().showJumpBottom) {
+            button?.remove();
+            return null;
         }
+        if (button) return button;
+        button = document.createElement('button');
+        button.id = JUMP_BOTTOM_ID;
+        button.type = 'button';
+        button.className = 'stlb-jump-bottom stlb-hidden interactable';
+        button.innerHTML = '<i class="fa-solid fa-chevron-down" aria-hidden="true"></i>';
         button.title = t('chat.jumpBottom');
         button.setAttribute('aria-label', button.title);
-        if (button.parentElement !== host) host.append(button);
+        button.addEventListener('click', jumpToBottom);
+        document.body.append(button);
         return button;
     }
 
@@ -660,6 +663,9 @@ jQuery(async function () {
         const rect = chatEl.getBoundingClientRect();
         const visible = hasActiveChat() && rect.width > 0 && rect.height > 0 && distanceFromBottom > 160;
         button.classList.toggle('stlb-hidden', !visible);
+        if (!visible) return;
+        button.style.left = `${Math.min(window.innerWidth - 8, rect.right - 12)}px`;
+        button.style.top = `${Math.min(window.innerHeight - 8, rect.bottom - 12)}px`;
     }
 
     function jumpToBottom() {
@@ -957,6 +963,14 @@ jQuery(async function () {
                             <input type="checkbox" id="stlb-set-ask" ${s.askEveryTime ? 'checked' : ''} aria-labelledby="stlb-label-ask" aria-describedby="stlb-desc-ask">
                         </div>
 
+                        <div class="stlb_set_row stlb_set_toggle">
+                            <div class="stlb_set_text">
+                                <div class="stlb_set_label" id="stlb-label-jump">${escapeHtml(t('set.showJumpBottom'))}</div>
+                                <div class="stlb_set_desc" id="stlb-desc-jump">${escapeHtml(t('set.showJumpBottomDesc'))}</div>
+                            </div>
+                            <input type="checkbox" id="stlb-set-jump" ${s.showJumpBottom ? 'checked' : ''} aria-labelledby="stlb-label-jump" aria-describedby="stlb-desc-jump">
+                        </div>
+
                         <div class="stlb_settings_section">
                             <div class="stlb_settings_heading">${escapeHtml(t('set.summaryHeading'))}</div>
 
@@ -1008,6 +1022,13 @@ jQuery(async function () {
         const syncToggleState = input => input.closest('.stlb_set_toggle')?.classList.toggle('stlb-checked', input.checked);
         $set.find('.stlb_set_toggle input[type="checkbox"]').each((_, input) => syncToggleState(input));
         $set.on('change', '#stlb-set-ask', function () { syncToggleState(this); getSettings().askEveryTime = this.checked; save(); });
+        $set.on('change', '#stlb-set-jump', function () {
+            syncToggleState(this);
+            getSettings().showJumpBottom = this.checked;
+            save();
+            if (this.checked) updateJumpBottomButton();
+            else document.getElementById(JUMP_BOTTOM_ID)?.remove();
+        });
         $set.on('change', '#stlb-set-summary', function () { syncToggleState(this); getSettings().summaryDefault = this.checked; save(); });
         $set.on('input', '#stlb-set-prompt', function () { getSettings().summaryPrompt = this.value; save(); });
         $set.on('input', '#stlb-set-limit', function () {
@@ -1047,7 +1068,7 @@ jQuery(async function () {
     document.addEventListener('click', onChatClick, true);
     document.addEventListener('keydown', onChatKeydown, true);
     const chatEl = document.getElementById('chat');
-    const jumpBottomButton = ensureJumpBottomButton();
+    ensureJumpBottomButton();
     const scheduleJumpBottomUpdate = () => {
         if (frameRequest || disposed) return;
         frameRequest = requestAnimationFrame(() => {
@@ -1058,7 +1079,6 @@ jQuery(async function () {
     const onChatScroll = scheduleJumpBottomUpdate;
     const onWindowResize = scheduleJumpBottomUpdate;
     chatEl?.addEventListener('scroll', onChatScroll, { passive: true });
-    jumpBottomButton?.addEventListener('click', jumpToBottom);
     window.addEventListener('resize', onWindowResize, { passive: true });
 
     const reinjectDebounced = (() => {
@@ -1218,7 +1238,6 @@ jQuery(async function () {
             document.removeEventListener('click', onChatClick, true);
             document.removeEventListener('keydown', onChatKeydown, true);
             chatEl?.removeEventListener('scroll', onChatScroll);
-            jumpBottomButton?.removeEventListener('click', jumpToBottom);
             window.removeEventListener('resize', onWindowResize);
             document.querySelectorAll(`.${BTN_CLASS}, .${PIN_BTN_CLASS}`).forEach(el => el.remove());
             document.querySelectorAll('.stlb-pin-highlight').forEach(el => el.classList.remove('stlb-pin-highlight'));

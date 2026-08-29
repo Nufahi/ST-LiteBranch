@@ -46,6 +46,8 @@
     "set.defaultCountDesc": "Pre-filled value in the branch dialog and used by the /litebranch command.",
     "set.askEveryTime": "Show the dialog before branching",
     "set.askEveryTimeDesc": "When off, the message button branches instantly using the default count.",
+    "set.showJumpBottom": "Show jump-to-bottom button",
+    "set.showJumpBottomDesc": "Shows the round button for jumping to the latest message when the chat is scrolled up.",
     "set.summaryDefault": "Summarize the older part by default",
     "set.summaryDefaultDesc": "Pre-checks the summary option in the dialog.",
     "set.summaryHeading": "AI summary",

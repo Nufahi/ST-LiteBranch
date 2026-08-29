@@ -145,9 +145,7 @@
  * JUMP TO LATEST MESSAGE
  * ============================================================ */
 .stlb-jump-bottom {
-    position: absolute;
-    right: 12px;
-    bottom: calc(var(--bottomFormBlockSize, 48px) + 14px);
+    position: fixed;
     z-index: 32;
     display: inline-flex;
     align-items: center;
@@ -160,11 +158,13 @@
     background: color-mix(in srgb, var(--stlb-bg) 88%, var(--stlb-accent) 12%);
     color: var(--stlb-accent);
     cursor: pointer;
-    touch-action: manipulation;
-    transition: color 0.15s ease, background 0.15s ease;
+    transform: translate(-100%, -100%);
+    backdrop-filter: blur(var(--SmartThemeBlurStrength, 10px));
+    transition: color 0.15s ease, background 0.15s ease, transform 0.15s ease;
 }
 .stlb-jump-bottom:hover {
     background: color-mix(in srgb, var(--stlb-bg) 74%, var(--stlb-accent) 26%);
+    transform: translate(-100%, -100%) scale(1.05);
 }
 .stlb-jump-bottom:focus-visible,
 .stlb-pin-main:focus-visible,
@@ -191,12 +191,7 @@
     .stlb-pin-nav { min-height: 44px; padding-inline: 4px; }
     .stlb-pin-main { gap: 7px; padding-inline: 5px; }
     .stlb-pin-action { width: 40px; min-height: 40px; }
-    .stlb-jump-bottom {
-        right: max(10px, env(safe-area-inset-right, 0px));
-        bottom: calc(var(--bottomFormBlockSize, 48px) + max(12px, env(safe-area-inset-bottom, 0px)));
-        width: 46px;
-        height: 46px;
-    }
+    .stlb-jump-bottom { width: 46px; height: 46px; }
 }
 
 /* ============================================================
