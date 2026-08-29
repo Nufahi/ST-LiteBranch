@@ -547,15 +547,19 @@ jQuery(async function () {
 
     function ensureJumpBottomButton() {
         let button = document.getElementById(JUMP_BOTTOM_ID);
-        if (button) return button;
-        button = document.createElement('button');
-        button.id = JUMP_BOTTOM_ID;
-        button.type = 'button';
-        button.className = 'stlb-jump-bottom stlb-hidden interactable';
-        button.innerHTML = '<i class="fa-solid fa-chevron-down" aria-hidden="true"></i>';
-        button.title = t('chat.jumpBottom');
-        button.setAttribute('aria-label', button.title);
-        document.body.append(button);
+        const chatEl = document.getElementById('chat');
+        const host = chatEl?.closest('#sheld') || chatEl?.parentElement;
+        if (!host) return null;
+        if (!button) {
+            button = document.createElement('button');
+            button.id = JUMP_BOTTOM_ID;
+            button.type = 'button';
+            button.className = 'stlb-jump-bottom stlb-hidden interactable';
+            button.innerHTML = '<i class="fa-solid fa-chevron-down" aria-hidden="true"></i>';
+            button.title = t('chat.jumpBottom');
+            button.setAttribute('aria-label', button.title);
+        }
+        if (button.parentElement !== host) host.append(button);
         return button;
     }
 
@@ -567,9 +571,6 @@ jQuery(async function () {
         const rect = chatEl.getBoundingClientRect();
         const visible = hasActiveChat() && rect.width > 0 && rect.height > 0 && distanceFromBottom > 160;
         button.classList.toggle('stlb-hidden', !visible);
-        if (!visible) return;
-        button.style.left = `${Math.min(window.innerWidth - 8, rect.right - 12)}px`;
-        button.style.top = `${Math.min(window.innerHeight - 8, rect.bottom - 12)}px`;
     }
 
     function jumpToBottom() {
