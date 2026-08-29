@@ -140,7 +140,6 @@
     border: 1px solid color-mix(in srgb, var(--stlb-accent) 58%, var(--stlb-border) 42%);
     border-radius: 50%;
     background: color-mix(in srgb, var(--stlb-bg) 88%, var(--stlb-accent) 12%);
-    box-shadow: 0 5px 18px rgba(0, 0, 0, 0.35);
     color: var(--stlb-accent);
     cursor: pointer;
     transform: translate(-100%, -100%);
