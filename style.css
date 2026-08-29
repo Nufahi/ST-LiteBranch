@@ -143,17 +143,17 @@
     height: 42px;
     padding: 0;
     border: 0;
-    background: transparent;
+    background: rgba(0, 0, 0, 0.001);
     color: var(--stlb-accent);
-    font-size: 20px;
-    opacity: 0.82;
+    font-size: 22px;
+    opacity: 1;
     cursor: pointer;
+    pointer-events: auto;
     touch-action: manipulation;
-    transition: color 0.15s ease, opacity 0.15s ease;
+    transition: color 0.15s ease;
 }
 .stlb-jump-bottom:hover {
     color: var(--stlb-fg);
-    opacity: 1;
 }
 .stlb-jump-bottom:focus-visible,
 .stlb-pin-main:focus-visible,
