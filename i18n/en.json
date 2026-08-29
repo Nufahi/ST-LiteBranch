@@ -17,7 +17,7 @@
     "chat.jumpBottom": "Jump to latest message",
 
     "dlg.title": "Create a lightweight branch",
-    "dlg.intro": "Start a fresh, fast chat that keeps only the most recent messages, counting back from the one you picked. The original chat is never touched — think of it as your full archive.",
+    "dlg.intro": "Start a fresh, fast chat that keeps only the most recent messages, counting back from the one you picked. Branching does not remove messages from the source chat.",
     "dlg.count": "Messages to carry over",
     "dlg.countHint": "How many messages (from the selected one, going back) to copy into the new chat.",
     "dlg.range": "Will copy messages #{from}–#{to} ({n} total).",
@@ -34,6 +34,8 @@
     "toast.groupUnsupported": "Group chats aren't supported yet — only single-character chats.",
     "toast.empty": "There are no messages to branch from.",
     "toast.badCount": "Enter a number of messages greater than 0.",
+    "toast.badAnchor": "Choose a valid message to branch from.",
+    "toast.busy": "A branch is already being created.",
     "toast.creating": "Creating branch…",
     "toast.done": "Branch created — {n} messages carried over.",
     "toast.failed": "Couldn't create the branch. See the console for details.",

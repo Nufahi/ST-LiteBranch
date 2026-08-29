@@ -13,8 +13,14 @@
     --stlb-border: var(--SmartThemeBorderColor, rgba(255, 255, 255, 0.12));
     --stlb-accent: var(--SmartThemeQuoteColor, #5aa9ff);
     --stlb-surface: rgba(255, 255, 255, 0.04);
-    --stlb-surface-strong: color-mix(in srgb, var(--stlb-bg) 80%, rgba(255, 255, 255, 0.08) 20%);
-    --stlb-muted: color-mix(in srgb, var(--stlb-fg) 55%, transparent);
+    --stlb-surface-strong: rgba(255, 255, 255, 0.06);
+    --stlb-muted: var(--stlb-fg);
+}
+@supports (color: color-mix(in srgb, white, black)) {
+    :root {
+        --stlb-surface-strong: color-mix(in srgb, var(--stlb-bg) 80%, rgba(255, 255, 255, 0.08) 20%);
+        --stlb-muted: color-mix(in srgb, var(--stlb-fg) 55%, transparent);
+    }
 }
 
 /* ============================================================
@@ -41,6 +47,11 @@
     color: var(--stlb-accent);
     transform: translateY(-1px);
 }
+.stlb_mes_button:focus-visible,
+.stlb_pin_button:focus-visible {
+    outline: 2px solid var(--stlb-accent);
+    outline-offset: 2px;
+}
 .stlb_pin_button {
     cursor: pointer;
     transition: color 0.15s ease, transform 0.15s ease;
@@ -66,6 +77,7 @@
     border: 1px solid var(--stlb-border);
     border-bottom: 0;
     border-radius: 0;
+    background: var(--stlb-bg);
     background: color-mix(in srgb, var(--stlb-bg) 94%, transparent);
     backdrop-filter: blur(var(--SmartThemeBlurStrength, 10px));
     color: var(--stlb-fg);
@@ -119,7 +131,8 @@
     flex: 0 0 auto;
 }
 .stlb-pin-action {
-    width: 30px;
+    width: 36px;
+    min-height: 36px;
     padding: 0;
     opacity: 0.65;
 }
@@ -142,18 +155,16 @@
     width: 42px;
     height: 42px;
     padding: 0;
-    border: 0;
-    background: rgba(0, 0, 0, 0.001);
+    border: 1px solid color-mix(in srgb, var(--stlb-accent) 58%, var(--stlb-border) 42%);
+    border-radius: 50%;
+    background: color-mix(in srgb, var(--stlb-bg) 88%, var(--stlb-accent) 12%);
     color: var(--stlb-accent);
-    font-size: 22px;
-    opacity: 1;
     cursor: pointer;
-    pointer-events: auto;
     touch-action: manipulation;
-    transition: color 0.15s ease;
+    transition: color 0.15s ease, background 0.15s ease;
 }
 .stlb-jump-bottom:hover {
-    color: var(--stlb-fg);
+    background: color-mix(in srgb, var(--stlb-bg) 74%, var(--stlb-accent) 26%);
 }
 .stlb-jump-bottom:focus-visible,
 .stlb-pin-main:focus-visible,
@@ -165,18 +176,21 @@
     animation: stlb-pin-flash 1.8s ease-out;
 }
 @keyframes stlb-pin-flash {
-    0%, 25% { background: color-mix(in srgb, var(--stlb-accent) 32%, transparent); }
+    0%, 25% { background: var(--stlb-accent); }
     100% { background: transparent; }
 }
 @media (prefers-reduced-motion: reduce) {
     .stlb-pin-highlight { animation: none; }
-    .stlb-jump-bottom { transition: none; }
+    .stlb-jump-bottom,
+    .stlb_mes_button,
+    .stlb_pin_button,
+    .stlb_set_row { transition: none; }
 }
 
 @media (max-width: 600px) {
     .stlb-pin-nav { min-height: 44px; padding-inline: 4px; }
     .stlb-pin-main { gap: 7px; padding-inline: 5px; }
-    .stlb-pin-action { width: 27px; }
+    .stlb-pin-action { width: 40px; min-height: 40px; }
     .stlb-jump-bottom {
         right: max(10px, env(safe-area-inset-right, 0px));
         bottom: calc(var(--bottomFormBlockSize, 48px) + max(12px, env(safe-area-inset-bottom, 0px)));
@@ -256,6 +270,7 @@
     padding: 14px;
     border: 1px solid var(--stlb-border);
     border-radius: 16px;
+    background: var(--stlb-bg);
     background:
         linear-gradient(180deg, color-mix(in srgb, var(--stlb-accent) 9%, transparent) 0%, transparent 22%),
         color-mix(in srgb, var(--stlb-bg) 88%, rgba(255, 255, 255, 0.03) 12%);
@@ -294,9 +309,12 @@
     cursor: pointer;
 }
 .stlb_set_row:hover {
+    border-color: var(--stlb-accent);
     border-color: color-mix(in srgb, var(--stlb-accent) 40%, var(--stlb-border) 60%);
 }
-.stlb_set_row:has(input:checked) {
+.stlb_set_row.stlb-checked {
+    border-color: var(--stlb-accent);
+    background: var(--stlb-surface-strong);
     border-color: color-mix(in srgb, var(--stlb-accent) 55%, var(--stlb-border) 45%);
     background: color-mix(in srgb, var(--stlb-accent) 12%, var(--stlb-surface-strong) 88%);
 }

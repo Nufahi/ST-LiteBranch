@@ -15,6 +15,9 @@ jQuery(async function () {
         }
     }
     window.__stLiteBranchInitialized = true;
+    const instanceToken = Symbol(MODULE_NAME);
+    window.__stLiteBranchInstance = instanceToken;
+    let disposed = false;
 
     function ctx() { return SillyTavern.getContext(); }
 
@@ -59,6 +62,9 @@ jQuery(async function () {
         if (vars) for (const k in vars) s = s.replace(new RegExp(`\\{${k}\\}`, 'g'), vars[k]);
         return s;
     }
+
+    await loadI18n();
+    if (window.__stLiteBranchInstance !== instanceToken) return;
 
     // ---------------------------------------------------------------------
     // Settings + storage
@@ -128,6 +134,16 @@ jQuery(async function () {
         if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
         return `stlb-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
     }
+    function createIntegrityUuid() {
+        if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
+        return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, char => {
+            const random = Math.floor(Math.random() * 16);
+            return (char === 'x' ? random : ((random & 0x3) | 0x8)).toString(16);
+        });
+    }
+    function clonePersisted(value) {
+        return JSON.parse(JSON.stringify(value));
+    }
 
     const SPLIT_ICON_HTML = `
         <svg class="stlb-split-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -166,14 +182,14 @@ jQuery(async function () {
         return id !== undefined && id !== null && id !== '' && c.characterId != null;
     }
 
-    function buildBranchName(mesId) {
+    function buildBranchName(mesId, sourceName) {
         const s = getSettings();
         const c = ctx();
         const date = (typeof c.humanizedDateTime === 'function')
             ? c.humanizedDateTime()
             : new Date().toISOString().replace(/[:.]/g, '-');
         const out = s.nameTemplate
-            .replace(/\{chat\}/g, getSourceChatName())
+            .replace(/\{chat\}/g, sourceName)
             .replace(/\{date\}/g, date)
             .replace(/\{mes\}/g, String(mesId));
         return sanitizeFileName(out);
@@ -190,25 +206,41 @@ jQuery(async function () {
     }
 
     // Optionally ask the model to summarize everything before `start`.
-    async function makeSummaryMessage(startIdx) {
-        const s = getSettings();
-        const c = ctx();
-        const chat = getChatArray();
-        if (startIdx <= 0) return null; // nothing older to summarize
-
-        const older = chat.slice(0, startIdx);
-        if (!older.length) return null;
-
-        // Flatten older messages to plain text, trimmed to summaryLimit chars
-        // (kept from the END, which is the most recent / most relevant part).
-        let text = older
-            .map(m => `${m.name || (m.is_user ? 'User' : 'Char')}: ${String(m.mes || '').trim()}`)
-            .join('\n\n');
-        if (text.length > s.summaryLimit) {
-            text = '…\n' + text.slice(text.length - s.summaryLimit);
+    function buildSummaryTranscript(chat, startIdx, limit) {
+        const reversed = [];
+        let remaining = limit;
+        for (let index = startIdx - 1; index >= 0 && remaining > 0; index--) {
+            const message = chat[index];
+            if (!message || message.is_system || message.is_hidden
+                || message.extra?.hidden || message.extra?.is_hidden || message.extra?.isSmallSys) continue;
+            const body = String(message.mes || '').trim();
+            if (!body) continue;
+            const text = `${message.name || (message.is_user ? 'User' : 'Char')}: ${body}`;
+            const separatorLength = reversed.length ? 2 : 0;
+            if (remaining <= separatorLength) break;
+            remaining -= separatorLength;
+            if (text.length > remaining) {
+                reversed.push(remaining === 1 ? '…' : `…${text.slice(-(remaining - 1))}`);
+                remaining = 0;
+            } else {
+                reversed.push(text);
+                remaining -= text.length;
+            }
         }
+        return reversed.reverse().join('\n\n');
+    }
 
-        const prompt = `${s.summaryPrompt}\n\nReturn only the final summary in English.\n\n---\n${text}\n---`;
+    // Build this synchronously from the source chat before generation starts.
+    function getSummaryInput(chat, startIdx) {
+        const s = getSettings();
+        if (startIdx <= 0) return null; // nothing older to summarize
+        const text = buildSummaryTranscript(chat, startIdx, s.summaryLimit);
+        if (!text) return null;
+        return `${s.summaryPrompt}\n\nReturn only the final summary in English.\n\n---\n${text}\n---`;
+    }
+
+    async function makeSummaryMessage(prompt, characterName) {
+        const c = ctx();
 
         let summary = '';
         try {
@@ -223,7 +255,7 @@ jQuery(async function () {
 
         const now = Date.now();
         return {
-            name: (c.characters?.[c.characterId]?.name) || c.name2 || 'System',
+            name: characterName || 'System',
             is_user: false,
             is_system: false, // false so it DOES get sent to the model as context
             send_date: now,
@@ -234,26 +266,45 @@ jQuery(async function () {
 
     // Save an arbitrary message array under a new chat file for the current
     // character via the server endpoint, then open it. Solo chats only.
-    async function saveAndOpenBranch(branchName, messages, sourceName, pinnedUids = []) {
-        const c = ctx();
-        const char = c.characters?.[c.characterId];
-        if (!char) throw new Error('No active character.');
+    function normalizeChatName(name) {
+        return String(name || '').replace(/\.jsonl$/i, '').normalize('NFC').toLocaleLowerCase();
+    }
 
-        // Fresh metadata: link to the parent, drop any integrity slug so the
-        // brand-new file passes the server's integrity check.
-        const metadata = {
-            main_chat: sourceName,
-            litebranch: {
-                source: sourceName,
-                created: new Date().toISOString(),
-                count: messages.length,
-            },
-        };
-        if (pinnedUids.length) {
-            metadata[SETTINGS_KEY] = {
-                pinnedMessages: pinnedUids.map(uid => ({ uid, pinnedAt: Date.now() })),
-            };
+    async function getExistingChatNames(source) {
+        const res = await fetch('/api/characters/chats', {
+            method: 'POST',
+            cache: 'no-cache',
+            headers: source.requestHeaders,
+            body: JSON.stringify({ avatar_url: source.avatar, simple: true }),
+        });
+        if (!res.ok) throw new Error(`chat list failed: ${res.statusText}`);
+        const data = await res.json();
+        if (!Array.isArray(data)) throw new Error('chat list returned an invalid response');
+        return new Set(data.flatMap(item => [item?.file_id, item?.file_name])
+            .filter(Boolean).map(normalizeChatName));
+    }
+
+    function makeUniqueBranchName(baseName, existingNames, sourceName) {
+        const unavailable = new Set(existingNames);
+        unavailable.add(normalizeChatName(sourceName));
+        let candidate = sanitizeFileName(baseName);
+        let number = 2;
+        while (unavailable.has(normalizeChatName(candidate))) {
+            const suffix = ` (${number++})`;
+            candidate = `${baseName.slice(0, Math.max(1, 160 - suffix.length)).trim()}${suffix}`;
         }
+        return candidate;
+    }
+
+    function isSameSource(source) {
+        const c = ctx();
+        const chatId = c.getCurrentChatId?.() ?? c.chatId ?? '';
+        return c.characterId === source.characterId
+            && String(chatId) === source.chatId
+            && getSourceChatName() === source.sourceName;
+    }
+
+    async function saveAndOpenBranch(branchName, messages, source, metadata) {
         const chatHeader = {
             chat_metadata: metadata,
             user_name: 'unused',
@@ -263,12 +314,12 @@ jQuery(async function () {
         const res = await fetch('/api/chats/save', {
             method: 'POST',
             cache: 'no-cache',
-            headers: c.getRequestHeaders(),
+            headers: source.requestHeaders,
             body: JSON.stringify({
-                ch_name: char.name,
+                ch_name: source.characterName,
                 file_name: branchName,
                 chat: [chatHeader, ...messages],
-                avatar_url: char.avatar,
+                avatar_url: source.avatar,
                 force: false,
             }),
         });
@@ -278,58 +329,91 @@ jQuery(async function () {
             throw new Error(`save failed: ${detail}`);
         }
 
-        // Switch to the freshly created chat.
-        await c.openCharacterChat(branchName);
+        if (!isSameSource(source)) throw new Error('source chat changed before branch could be opened');
+        await source.context.openCharacterChat(branchName);
     }
 
     // The whole flow. `mesId` is the anchor (inclusive, branch goes back from it).
+    let branchCreationRunning = false;
     async function createBranch(mesId, count, withSummary) {
-        const c = ctx();
+        if (branchCreationRunning) { toast(t('toast.busy'), 'warning'); return false; }
         if (!hasOpenChat()) { toast(t('toast.noChat'), 'warning'); return false; }
         if (isGroup()) { toast(t('toast.groupUnsupported'), 'warning'); return false; }
 
+        const c = ctx();
         const chat = getChatArray();
         if (!chat.length) { toast(t('toast.empty'), 'warning'); return false; }
-
-        mesId = clamp(Number(mesId), 0, chat.length - 1);
+        const numericMesId = Number(mesId);
+        if (!Number.isInteger(numericMesId)) { toast(t('toast.badAnchor'), 'warning'); return false; }
+        mesId = clamp(numericMesId, 0, chat.length - 1);
         count = Math.max(1, Math.floor(Number(count) || 1));
-
         const { start, end } = computeRange(mesId, count);
         const sourceName = getSourceChatName();
+        const char = c.characters?.[c.characterId];
+        if (!char) { toast(t('toast.noChat'), 'warning'); return false; }
 
+        branchCreationRunning = true;
         toast(t('toast.creating'), 'info');
-
-        // Make sure the current chat is persisted before we read from it.
-        try { await c.saveChat(); } catch (_) { /* best effort */ }
-
-        const carried = structuredClone(chat.slice(start, end + 1));
-
-        let messages = carried;
-        const pinnedUids = [];
-        if (withSummary) {
-            let summaryMsg = null;
-            try { summaryMsg = await makeSummaryMessage(start); }
-            catch (e) { console.error(`${LOG_PREFIX}`, e); }
-            if (summaryMsg) {
-                summaryMsg.stlb_uid = createUid();
-                pinnedUids.push(summaryMsg.stlb_uid);
-                messages = [summaryMsg, ...carried];
-            } else if (start > 0) {
-                toast(t('toast.summaryFailed'), 'warning');
-            }
-        }
-
-        const branchName = buildBranchName(mesId);
         try {
-            await saveAndOpenBranch(branchName, messages, sourceName, pinnedUids);
+            const source = {
+                context: c,
+                characterId: c.characterId,
+                characterName: char.name,
+                avatar: char.avatar,
+                chatId: String(c.getCurrentChatId?.() ?? c.chatId ?? ''),
+                sourceName,
+                requestHeaders: c.getRequestHeaders(),
+            };
+            const carried = clonePersisted(chat.slice(start, end + 1));
+            const summaryPrompt = withSummary ? getSummaryInput(chat, start) : null;
+            const metadata = clonePersisted(c.chatMetadata || {});
+            delete metadata.integrity;
+
+            let messages = carried;
+            const carriedUids = new Set(carried.map(getMessageUid).filter(Boolean));
+            const pinnedRecords = getPinRecords()
+                .filter(record => carriedUids.has(record.uid))
+                .map(record => clonePersisted(record));
+            if (summaryPrompt) {
+                let summaryMsg = null;
+                try { summaryMsg = await makeSummaryMessage(summaryPrompt, source.characterName); }
+                catch (error) { console.error(`${LOG_PREFIX} summary failed`, error); }
+                if (!isSameSource(source)) throw new Error('source chat changed during summary generation');
+                if (summaryMsg) {
+                    summaryMsg.stlb_uid = createUid();
+                    pinnedRecords.unshift({ uid: summaryMsg.stlb_uid, pinnedAt: Date.now() });
+                    messages = [summaryMsg, ...carried];
+                } else if (start > 0) {
+                    toast(t('toast.summaryFailed'), 'warning');
+                }
+            }
+
+            metadata.integrity = createIntegrityUuid();
+            metadata.main_chat = sourceName;
+            metadata.litebranch = {
+                source: sourceName,
+                created: new Date().toISOString(),
+                count: messages.length,
+            };
+            metadata[SETTINGS_KEY] = {
+                ...(metadata[SETTINGS_KEY] || {}),
+                pinnedMessages: pinnedRecords,
+            };
+
+            if (!isSameSource(source)) throw new Error('source chat changed before branch save');
+            const existingNames = await getExistingChatNames(source);
+            if (!isSameSource(source)) throw new Error('source chat changed while checking branch name');
+            const branchName = makeUniqueBranchName(buildBranchName(mesId, sourceName), existingNames, sourceName);
+            await saveAndOpenBranch(branchName, messages, source, metadata);
+            toast(t('toast.done', { n: carried.length }), 'success');
+            return true;
         } catch (e) {
             console.error(`${LOG_PREFIX} createBranch failed`, e);
             toast(t('toast.failed'), 'error');
             return false;
+        } finally {
+            branchCreationRunning = false;
         }
-
-        toast(t('toast.done', { n: carried.length }), 'success');
-        return true;
     }
 
     // =====================================================================
@@ -360,7 +444,7 @@ jQuery(async function () {
                 <span class="stlb-hint">${escapeHtml(t('dlg.countHint'))}</span>
             </label>
 
-            <div class="stlb-range" id="stlb-range">${escapeHtml(buildRangeText(defCount))}</div>
+            <div class="stlb-range" id="stlb-range" role="status" aria-live="polite">${escapeHtml(buildRangeText(defCount))}</div>
 
             <label class="stlb-check">
                 <input type="checkbox" id="stlb-summary" ${s.summaryDefault ? 'checked' : ''}>
@@ -390,7 +474,7 @@ jQuery(async function () {
             rangeEl.textContent = buildRangeText(n);
         });
 
-        const popup = new Popup(dom, POPUP_TYPE.TEXT ?? 1, '', {
+        const popup = new Popup(dom, POPUP_TYPE.TEXT ?? 1, t('dlg.title'), {
             okButton: t('dlg.create'),
             cancelButton: t('dlg.cancel'),
             wide: false,
@@ -473,8 +557,13 @@ jQuery(async function () {
     }
 
     function getResolvedPins() {
+        const messageIndexes = new Map();
+        getChatArray().forEach((message, index) => {
+            const uid = getMessageUid(message);
+            if (uid && !messageIndexes.has(uid)) messageIndexes.set(uid, index);
+        });
         return getPinRecords()
-            .map(record => ({ record, messageIndex: findMessageIndex(record.uid) }))
+            .map(record => ({ record, messageIndex: messageIndexes.get(record.uid) ?? -1 }))
             .filter(pin => pin.messageIndex >= 0)
             .sort((a, b) => a.messageIndex - b.messageIndex);
     }
@@ -556,9 +645,9 @@ jQuery(async function () {
             button.type = 'button';
             button.className = 'stlb-jump-bottom stlb-hidden interactable';
             button.innerHTML = '<i class="fa-solid fa-chevron-down" aria-hidden="true"></i>';
-            button.title = t('chat.jumpBottom');
-            button.setAttribute('aria-label', button.title);
         }
+        button.title = t('chat.jumpBottom');
+        button.setAttribute('aria-label', button.title);
         if (button.parentElement !== host) host.append(button);
         return button;
     }
@@ -624,7 +713,7 @@ jQuery(async function () {
             reconcilePending = true;
             return;
         }
-        if (!hasActiveChat()) return;
+        if (!hasActiveChat() || disposed) return;
         reconcileRunning = true;
         reconcilePending = false;
         try {
@@ -660,6 +749,7 @@ jQuery(async function () {
             console.error(`${LOG_PREFIX} pin reconciliation failed`, error);
         } finally {
             reconcileRunning = false;
+            if (disposed) return;
             renderPinNavigator();
             refreshPinButtons();
             if (reconcilePending) reconcilePins();
@@ -689,6 +779,7 @@ jQuery(async function () {
         const chatId = ctx().getCurrentChatId?.() ?? ctx().chatId;
         let messageIndex = findMessageIndex(pin.record.uid);
         if (messageIndex < 0) { await reconcilePins(); return; }
+        if (disposed) return;
 
         let target = document.querySelector(`#chat .mes[mesid="${messageIndex}"]`);
         while (!target) {
@@ -702,7 +793,8 @@ jQuery(async function () {
             target = document.querySelector(`#chat .mes[mesid="${messageIndex}"]`);
         }
 
-        target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+        target.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'center' });
         target.classList.remove('stlb-pin-highlight');
         void target.offsetWidth;
         target.classList.add('stlb-pin-highlight');
@@ -757,6 +849,31 @@ jQuery(async function () {
             btn.setAttribute('role', 'button');
             btn.setAttribute('aria-label', btn.title);
             holder.prepend(btn);
+        }
+
+        const pinButton = holder.querySelector('.' + PIN_BTN_CLASS);
+        if (pinButton) {
+            const message = getChatArray()[Number(mesEl.getAttribute('mesid'))];
+            const isPinned = getPinRecords().some(record => record.uid === getMessageUid(message));
+            pinButton.classList.toggle('stlb-pinned', isPinned);
+            pinButton.title = t(isPinned ? 'pin.buttonRemove' : 'pin.buttonAdd');
+            pinButton.setAttribute('aria-label', pinButton.title);
+            pinButton.setAttribute('aria-pressed', String(isPinned));
+        }
+    }
+
+    function injectAddedMessages(mutations) {
+        for (const mutation of mutations) {
+            if (mutation.type === 'attributes') {
+                injectButton(mutation.target);
+                continue;
+            }
+            for (const node of mutation.addedNodes) {
+                if (!(node instanceof Element)) continue;
+                const containingMessage = node.closest('.mes[mesid]');
+                if (containingMessage) injectButton(containingMessage);
+                node.querySelectorAll?.('.mes[mesid]').forEach(injectButton);
+            }
         }
     }
 
@@ -826,18 +943,18 @@ jQuery(async function () {
 
                         <div class="stlb_set_row">
                             <div class="stlb_set_text">
-                                <div class="stlb_set_label">${escapeHtml(t('set.defaultCount'))}</div>
-                                <div class="stlb_set_desc">${escapeHtml(t('set.defaultCountDesc'))}</div>
+                                <div class="stlb_set_label" id="stlb-label-count">${escapeHtml(t('set.defaultCount'))}</div>
+                                <div class="stlb_set_desc" id="stlb-desc-count">${escapeHtml(t('set.defaultCountDesc'))}</div>
                             </div>
-                            <input type="number" min="1" step="1" id="stlb-set-count" class="text_pole stlb_num" value="${s.defaultCount}">
+                            <input type="number" min="1" step="1" id="stlb-set-count" class="text_pole stlb_num" value="${s.defaultCount}" aria-labelledby="stlb-label-count" aria-describedby="stlb-desc-count">
                         </div>
 
                         <div class="stlb_set_row stlb_set_toggle">
                             <div class="stlb_set_text">
-                                <div class="stlb_set_label">${escapeHtml(t('set.askEveryTime'))}</div>
-                                <div class="stlb_set_desc">${escapeHtml(t('set.askEveryTimeDesc'))}</div>
+                                <div class="stlb_set_label" id="stlb-label-ask">${escapeHtml(t('set.askEveryTime'))}</div>
+                                <div class="stlb_set_desc" id="stlb-desc-ask">${escapeHtml(t('set.askEveryTimeDesc'))}</div>
                             </div>
-                            <input type="checkbox" id="stlb-set-ask" ${s.askEveryTime ? 'checked' : ''}>
+                            <input type="checkbox" id="stlb-set-ask" ${s.askEveryTime ? 'checked' : ''} aria-labelledby="stlb-label-ask" aria-describedby="stlb-desc-ask">
                         </div>
 
                         <div class="stlb_settings_section">
@@ -845,36 +962,36 @@ jQuery(async function () {
 
                             <div class="stlb_set_row stlb_set_toggle">
                                 <div class="stlb_set_text">
-                                    <div class="stlb_set_label">${escapeHtml(t('set.summaryDefault'))}</div>
-                                    <div class="stlb_set_desc">${escapeHtml(t('set.summaryDefaultDesc'))}</div>
+                                    <div class="stlb_set_label" id="stlb-label-summary">${escapeHtml(t('set.summaryDefault'))}</div>
+                                    <div class="stlb_set_desc" id="stlb-desc-summary">${escapeHtml(t('set.summaryDefaultDesc'))}</div>
                                 </div>
-                                <input type="checkbox" id="stlb-set-summary" ${s.summaryDefault ? 'checked' : ''}>
+                                <input type="checkbox" id="stlb-set-summary" ${s.summaryDefault ? 'checked' : ''} aria-labelledby="stlb-label-summary" aria-describedby="stlb-desc-summary">
                             </div>
 
                             <div class="stlb_set_row stlb_set_col">
                                 <div class="stlb_set_text">
-                                    <div class="stlb_set_label">${escapeHtml(t('set.summaryPrompt'))}</div>
-                                    <div class="stlb_set_desc">${escapeHtml(t('set.summaryPromptHint'))}</div>
+                                    <div class="stlb_set_label" id="stlb-label-prompt">${escapeHtml(t('set.summaryPrompt'))}</div>
+                                    <div class="stlb_set_desc" id="stlb-desc-prompt">${escapeHtml(t('set.summaryPromptHint'))}</div>
                                 </div>
-                                <textarea id="stlb-set-prompt" class="text_pole stlb_textarea" rows="4">${escapeHtml(s.summaryPrompt)}</textarea>
+                                <textarea id="stlb-set-prompt" class="text_pole stlb_textarea" rows="4" aria-labelledby="stlb-label-prompt" aria-describedby="stlb-desc-prompt">${escapeHtml(s.summaryPrompt)}</textarea>
                             </div>
 
                             <div class="stlb_set_row">
                                 <div class="stlb_set_text">
-                                    <div class="stlb_set_label">${escapeHtml(t('set.summaryLimit'))}</div>
-                                    <div class="stlb_set_desc">${escapeHtml(t('set.summaryLimitHint'))}</div>
+                                    <div class="stlb_set_label" id="stlb-label-limit">${escapeHtml(t('set.summaryLimit'))}</div>
+                                    <div class="stlb_set_desc" id="stlb-desc-limit">${escapeHtml(t('set.summaryLimitHint'))}</div>
                                 </div>
-                                <input type="number" min="500" step="500" id="stlb-set-limit" class="text_pole stlb_num" value="${s.summaryLimit}">
+                                <input type="number" min="500" step="500" id="stlb-set-limit" class="text_pole stlb_num" value="${s.summaryLimit}" aria-labelledby="stlb-label-limit" aria-describedby="stlb-desc-limit">
                             </div>
                         </div>
 
                         <div class="stlb_settings_section">
                             <div class="stlb_set_row stlb_set_col">
                                 <div class="stlb_set_text">
-                                    <div class="stlb_set_label">${escapeHtml(t('set.nameTemplate'))}</div>
-                                    <div class="stlb_set_desc">${escapeHtml(t('set.nameTemplateHint'))}</div>
+                                    <div class="stlb_set_label" id="stlb-label-name">${escapeHtml(t('set.nameTemplate'))}</div>
+                                    <div class="stlb_set_desc" id="stlb-desc-name">${escapeHtml(t('set.nameTemplateHint'))}</div>
                                 </div>
-                                <input type="text" id="stlb-set-name" class="text_pole" value="${escapeHtml(s.nameTemplate)}">
+                                <input type="text" id="stlb-set-name" class="text_pole" value="${escapeHtml(s.nameTemplate)}" aria-labelledby="stlb-label-name" aria-describedby="stlb-desc-name">
                             </div>
                         </div>
                     </div>
@@ -888,8 +1005,10 @@ jQuery(async function () {
             const v = Math.max(1, Math.floor(Number(this.value) || 1));
             getSettings().defaultCount = v; save();
         });
-        $set.on('change', '#stlb-set-ask', function () { getSettings().askEveryTime = this.checked; save(); });
-        $set.on('change', '#stlb-set-summary', function () { getSettings().summaryDefault = this.checked; save(); });
+        const syncToggleState = input => input.closest('.stlb_set_toggle')?.classList.toggle('stlb-checked', input.checked);
+        $set.find('.stlb_set_toggle input[type="checkbox"]').each((_, input) => syncToggleState(input));
+        $set.on('change', '#stlb-set-ask', function () { syncToggleState(this); getSettings().askEveryTime = this.checked; save(); });
+        $set.on('change', '#stlb-set-summary', function () { syncToggleState(this); getSettings().summaryDefault = this.checked; save(); });
         $set.on('input', '#stlb-set-prompt', function () { getSettings().summaryPrompt = this.value; save(); });
         $set.on('input', '#stlb-set-limit', function () {
             const v = Math.max(500, Math.floor(Number(this.value) || 500));
@@ -909,6 +1028,7 @@ jQuery(async function () {
     // =====================================================================
     const boundHandlers = [];
     const timers = new Set();
+    let frameRequest = 0;
     function on(evt, fn) {
         if (!evt || !eventSource || typeof eventSource.on !== 'function') return;
         eventSource.on(evt, fn);
@@ -928,8 +1048,15 @@ jQuery(async function () {
     document.addEventListener('keydown', onChatKeydown, true);
     const chatEl = document.getElementById('chat');
     const jumpBottomButton = ensureJumpBottomButton();
-    const onChatScroll = () => updateJumpBottomButton();
-    const onWindowResize = () => updateJumpBottomButton();
+    const scheduleJumpBottomUpdate = () => {
+        if (frameRequest || disposed) return;
+        frameRequest = requestAnimationFrame(() => {
+            frameRequest = 0;
+            if (!disposed) updateJumpBottomButton();
+        });
+    };
+    const onChatScroll = scheduleJumpBottomUpdate;
+    const onWindowResize = scheduleJumpBottomUpdate;
     chatEl?.addEventListener('scroll', onChatScroll, { passive: true });
     jumpBottomButton?.addEventListener('click', jumpToBottom);
     window.addEventListener('resize', onWindowResize, { passive: true });
@@ -969,35 +1096,33 @@ jQuery(async function () {
             const el = document.querySelector(`#chat .mes[mesid="${idx}"]`);
             if (el) injectButton(el);
         } else { reinjectDebounced(); }
+        scheduleJumpBottomUpdate();
     });
     on(event_types.USER_MESSAGE_RENDERED, (idx) => {
         if (typeof idx === 'number') {
             const el = document.querySelector(`#chat .mes[mesid="${idx}"]`);
             if (el) injectButton(el);
         } else { reinjectDebounced(); }
+        scheduleJumpBottomUpdate();
     });
     on(event_types.MORE_MESSAGES_LOADED, reinjectDebounced);
-    on(event_types.MESSAGE_SWIPED, reinjectDebounced);
+    on(event_types.MESSAGE_SWIPED, () => { reinjectDebounced(); reconcileDebounced(); });
     on(event_types.MESSAGE_EDITED, () => { reinjectDebounced(); renderPinNavigator(); });
     on(event_types.MESSAGE_UPDATED, () => { reinjectDebounced(); renderPinNavigator(); });
     on(event_types.MESSAGE_DELETED, reconcileDebounced);
-    on(event_types.MESSAGE_SENT, reconcileDebounced);
-    on(event_types.MESSAGE_RECEIVED, reconcileDebounced);
     on(event_types.CHAT_CHANGED, () => {
         jumpToken++;
         activePinIndex = 0;
         reinjectDebounced();
         reconcileDebounced();
-        updateJumpBottomButton();
+        scheduleJumpBottomUpdate();
     });
     on(event_types.APP_READY, () => { reinjectDebounced(); reconcileDebounced(); });
 
     const chatObserver = new MutationObserver(mutations => {
-        const relevant = mutations.some(mutation => mutation.type === 'childList'
-            || (mutation.type === 'attributes' && mutation.attributeName === 'mesid'));
-        if (relevant) {
-            reinjectDebounced();
-            reconcileDebounced();
+        if (!disposed) {
+            injectAddedMessages(mutations);
+            scheduleJumpBottomUpdate();
         }
     });
     const observedChat = document.getElementById('chat');
@@ -1064,7 +1189,6 @@ jQuery(async function () {
     // =====================================================================
     // INIT
     // =====================================================================
-    await loadI18n();
     addSettingsCard();
     ensurePinNavigator();
     ensureJumpBottomButton();
@@ -1080,6 +1204,7 @@ jQuery(async function () {
     // DISPOSE (hot-reload)
     // =====================================================================
     window.__stLiteBranchDispose = function () {
+        disposed = true;
         try {
             boundHandlers.forEach(([evt, fn]) => {
                 try { eventSource.removeListener?.(evt, fn); } catch (_) { /* noop */ }
@@ -1088,6 +1213,8 @@ jQuery(async function () {
             chatObserver.disconnect();
             timers.forEach(timer => clearTimeout(timer));
             timers.clear();
+            if (frameRequest) cancelAnimationFrame(frameRequest);
+            frameRequest = 0;
             document.removeEventListener('click', onChatClick, true);
             document.removeEventListener('keydown', onChatKeydown, true);
             chatEl?.removeEventListener('scroll', onChatScroll);
@@ -1099,6 +1226,9 @@ jQuery(async function () {
             document.getElementById(JUMP_BOTTOM_ID)?.remove();
             $('#stlb-settings').remove();
         } catch (e) { console.error(`${LOG_PREFIX} dispose error`, e); }
-        window.__stLiteBranchInitialized = false;
+        if (window.__stLiteBranchInstance === instanceToken) {
+            window.__stLiteBranchInitialized = false;
+            window.__stLiteBranchInstance = null;
+        }
     };
 });

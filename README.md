@@ -6,7 +6,7 @@ chat lives in memory and gets rewritten to disk on every message. LiteBranch
 creates a brand-new chat that keeps only the **last N messages**, counting back
 from the message you pick, so you can keep going without the lag.
 
-Your original chat is **never modified** — treat it as your full archive.
+Creating a branch never removes messages from the original chat. Pinning does store stable message IDs and pin metadata in that chat.
 
 ## Features
 
