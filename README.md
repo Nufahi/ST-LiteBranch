@@ -46,7 +46,7 @@ Creating a branch never removes messages from the original chat. Pinning does st
   with save, cancel, duplicate, delete, and move controls. Close the panel with
   `×`, Escape, or a click outside it. It closes if its target changes, so an
   already-open menu never silently switches to a different message.
-  Drag the circle with a finger or mouse to place it anywhere on screen; its
+  Drag the small pencil icon with a finger or mouse to place it anywhere on screen; its
   position is remembered on this device and stays within reach after resizing.
 - **Slash command:**
   - `/litebranch` — last N (your default) from the last message.

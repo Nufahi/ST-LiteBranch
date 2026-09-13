@@ -208,6 +208,29 @@
 :is(#stlb-jump-bottom, #stlb-message-actions):hover {
     background: var(--stlb-surface-strong) !important;
 }
+/* Small pencil, with an invisible touch/drag target. */
+#stlb-message-actions,
+#stlb-message-actions:hover {
+    border: 0 !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+}
+#stlb-message-actions::before,
+#stlb-message-actions::after {
+    content: none !important;
+}
+#stlb-message-actions > svg {
+    display: block !important;
+    position: static !important;
+    flex: 0 0 18px !important;
+    width: 18px !important;
+    height: 18px !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    transform: none !important;
+    pointer-events: none !important;
+}
 :is(#stlb-jump-bottom, #stlb-message-actions):focus-visible {
     outline: 2px solid var(--stlb-accent) !important;
     outline-offset: 2px !important;

@@ -770,7 +770,10 @@ jQuery(async function () {
         button.id = ACTIONS_ID;
         button.type = 'button';
         button.className = 'stlb-message-actions stlb-hidden interactable';
-        button.innerHTML = '<i class="fa-solid fa-pen-to-square" aria-hidden="true"></i>';
+        button.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+            <path d="m16 3 5 5M4 15 15.5 3.5a3.54 3.54 0 0 1 5 5L9 20l-6 1z"></path>
+        </svg>`;
         button.title = `${t('actions.open')} · ${t('actions.drag')}`;
         button.setAttribute('aria-label', t('actions.open'));
         button.setAttribute('aria-expanded', 'false');
