@@ -144,7 +144,8 @@
 /* ============================================================
  * JUMP TO LATEST MESSAGE
  * ============================================================ */
-.stlb-jump-bottom {
+.stlb-jump-bottom,
+.stlb-message-actions {
     position: fixed;
     z-index: 32;
     display: inline-flex;
@@ -162,11 +163,13 @@
     backdrop-filter: blur(var(--SmartThemeBlurStrength, 10px));
     transition: color 0.15s ease, background 0.15s ease, transform 0.15s ease;
 }
-.stlb-jump-bottom:hover {
+.stlb-jump-bottom:hover,
+.stlb-message-actions:hover {
     background: color-mix(in srgb, var(--stlb-bg) 74%, var(--stlb-accent) 26%);
     transform: translate(-100%, -100%) scale(1.05);
 }
 .stlb-jump-bottom:focus-visible,
+.stlb-message-actions:focus-visible,
 .stlb-pin-main:focus-visible,
 .stlb-pin-action:focus-visible {
     outline: 2px solid var(--stlb-accent);
@@ -182,6 +185,7 @@
 @media (prefers-reduced-motion: reduce) {
     .stlb-pin-highlight { animation: none; }
     .stlb-jump-bottom,
+    .stlb-message-actions,
     .stlb_mes_button,
     .stlb_pin_button,
     .stlb_set_row { transition: none; }
@@ -191,7 +195,100 @@
     .stlb-pin-nav { min-height: 44px; padding-inline: 4px; }
     .stlb-pin-main { gap: 7px; padding-inline: 5px; }
     .stlb-pin-action { width: 40px; min-height: 40px; }
-    .stlb-jump-bottom { width: 46px; height: 46px; }
+    .stlb-jump-bottom,
+    .stlb-message-actions { width: 46px; height: 46px; }
+}
+
+/* Real message controls stay under #chat .mes, including in the top layer. */
+#stlb-message-actions-panel {
+    position: fixed;
+    inset: auto;
+    z-index: 33;
+    box-sizing: border-box;
+    margin: 0;
+    padding: 8px;
+    border: 1px solid var(--stlb-border);
+    border-radius: 12px;
+    background: var(--stlb-bg);
+    color: var(--stlb-fg);
+    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.25);
+    overflow: auto;
+    overscroll-behavior: contain;
+    font-size: var(--mainFontSize, 16px);
+    text-align: start;
+}
+#stlb-message-actions-panel::backdrop {
+    pointer-events: none;
+}
+#stlb-message-actions-panel .stlb-actions-heading {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+#stlb-message-actions-panel .stlb-actions-target {
+    flex: 1 1 auto;
+    min-width: 0;
+    width: auto;
+    min-height: 40px;
+    margin: 0;
+}
+#stlb-message-actions-panel .stlb-actions-close {
+    flex: 0 0 40px;
+    height: 40px;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+}
+#stlb-message-actions-panel .stlb-actions-message {
+    margin: 5px 4px;
+    color: var(--stlb-muted);
+    font-size: 0.8em;
+    overflow-wrap: anywhere;
+}
+#stlb-message-actions-panel .mes_buttons,
+#stlb-message-actions-panel .mes_edit_buttons,
+#stlb-message-actions-panel .extraMesButtons {
+    position: static;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 4px;
+    min-width: 0;
+    max-width: 100%;
+    float: none;
+    overflow: visible;
+    padding: 0;
+    filter: none;
+    transition: none;
+}
+#stlb-message-actions-panel .mes_button,
+#stlb-message-actions-panel .mes_edit_buttons .menu_button {
+    box-sizing: border-box;
+    min-width: 40px;
+    min-height: 40px;
+    height: auto;
+    margin: 0;
+    padding: 10px;
+    text-align: center;
+    opacity: 1;
+}
+#stlb-message-actions-panel .stlb-split-icon {
+    margin: auto;
+}
+#stlb-message-actions-panel .disabled,
+#stlb-message-actions-panel [aria-disabled="true"] {
+    opacity: 0.35;
+    pointer-events: none;
+}
+#stlb-message-actions-panel :focus-visible {
+    outline: 2px solid var(--stlb-accent);
+    outline-offset: -2px;
+}
+#stlb-message-actions-panel .stlb-actions-close:hover {
+    color: var(--stlb-accent);
+    background: var(--stlb-surface-strong);
 }
 
 /* ============================================================

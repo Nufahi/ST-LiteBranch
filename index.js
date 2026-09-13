@@ -87,6 +87,7 @@ jQuery(async function () {
         defaultCount: 50,
         askEveryTime: true,
         showJumpBottom: true,
+        showMessageActions: true,
         summaryDefault: false,
         summaryPrompt: DEFAULT_SUMMARY_PROMPT,
         summaryLimit: 12000,
@@ -102,6 +103,7 @@ jQuery(async function () {
         if (!Number.isFinite(s.defaultCount) || s.defaultCount < 1) s.defaultCount = 50;
         if (typeof s.askEveryTime !== 'boolean') s.askEveryTime = true;
         if (typeof s.showJumpBottom !== 'boolean') s.showJumpBottom = true;
+        if (typeof s.showMessageActions !== 'boolean') s.showMessageActions = true;
         if (typeof s.summaryDefault !== 'boolean') s.summaryDefault = false;
         if (typeof s.summaryPrompt !== 'string' || !s.summaryPrompt.trim()
             || s.summaryPrompt.trim() === LEGACY_SUMMARY_PROMPT) {
@@ -675,6 +677,185 @@ jQuery(async function () {
         chatEl.scrollTo({ top: chatEl.scrollHeight, behavior: reduceMotion ? 'auto' : 'smooth' });
     }
 
+    // =====================================================================
+    // FLOATING MESSAGE ACTIONS
+    // Keep the real controls inside their message: native and extension
+    // handlers depend on closest('.mes'), .mes_block and delegated events.
+    // A manual popover escapes chat clipping without changing DOM ancestry.
+    // =====================================================================
+    const ACTIONS_ID = 'stlb-message-actions';
+    const ACTIONS_PANEL_ID = 'stlb-message-actions-panel';
+    let actionsOffset = 0;
+    let floatingActions = null;
+
+    function ensureMessageActionsButton() {
+        let button = document.getElementById(ACTIONS_ID);
+        if (!getSettings().showMessageActions) {
+            closeMessageActions();
+            button?.remove();
+            return null;
+        }
+        if (button) return button;
+        button = document.createElement('button');
+        button.id = ACTIONS_ID;
+        button.type = 'button';
+        button.className = 'stlb-message-actions stlb-hidden interactable';
+        button.innerHTML = '<i class="fa-solid fa-pen-to-square" aria-hidden="true"></i>';
+        button.title = t('actions.open');
+        button.setAttribute('aria-label', button.title);
+        button.setAttribute('aria-expanded', 'false');
+        button.setAttribute('aria-controls', ACTIONS_PANEL_ID);
+        button.addEventListener('click', () => {
+            if (floatingActions) closeMessageActions();
+            else openMessageActions();
+        });
+        document.body.append(button);
+        return button;
+    }
+
+    function closeMessageActions(returnFocus = false) {
+        const state = floatingActions;
+        floatingActions = null;
+        if (state) {
+            state.observer.disconnect();
+            // Restore each original position, including when a chat was detached.
+            for (const { element, marker } of state.controls) {
+                if (marker.parentNode) marker.replaceWith(element);
+            }
+            state.panel.remove();
+        }
+        const button = document.getElementById(ACTIONS_ID);
+        button?.setAttribute('aria-expanded', 'false');
+        if (returnFocus) button?.focus({ preventScroll: true });
+    }
+
+    function openMessageActions() {
+        closeMessageActions();
+        const chat = getChatArray();
+        if (!hasActiveChat() || !chat.length) return;
+        if (chat.length < 2) actionsOffset = 0;
+        const index = chat.length - 1 - actionsOffset;
+        const messageEl = document.querySelector(`#chat .mes[mesid="${index}"]`);
+        const normal = messageEl?.querySelector('.mes_buttons');
+        const editor = messageEl?.querySelector('.mes_edit_buttons');
+        if (!normal || !editor || normal.parentElement !== editor.parentElement) {
+            toast(t('actions.unavailable'), 'info');
+            return;
+        }
+
+        const panel = document.createElement('div');
+        panel.id = ACTIONS_PANEL_ID;
+        panel.className = 'stlb-actions-panel';
+        panel.setAttribute('role', 'region');
+        panel.setAttribute('aria-label', t('actions.open'));
+        panel.innerHTML = `
+            <div class="stlb-actions-heading">
+                <select class="stlb-actions-target text_pole" aria-label="${escapeHtml(t('actions.target'))}">
+                    <option value="0">${escapeHtml(t('actions.last'))}</option>
+                    <option value="1" ${chat.length < 2 ? 'disabled' : ''}>${escapeHtml(t('actions.previous'))}</option>
+                </select>
+                <button type="button" class="stlb-actions-close interactable fa-solid fa-xmark"
+                    title="${escapeHtml(t('actions.close'))}" aria-label="${escapeHtml(t('actions.close'))}"></button>
+            </div>
+            <div class="stlb-actions-message"></div>`;
+        panel.querySelector('.stlb-actions-message').textContent = `#${index} · ${chat[index]?.name || t('pin.unknown')}`;
+        const selector = panel.querySelector('select');
+        selector.value = String(actionsOffset);
+        selector.addEventListener('change', () => {
+            actionsOffset = Number(selector.value) === 1 ? 1 : 0;
+            openMessageActions();
+        });
+        panel.querySelector('.stlb-actions-close').addEventListener('click', () => closeMessageActions(true));
+
+        const controls = [normal, editor].map(element => {
+            const marker = document.createComment('stlb-message-control');
+            element.before(marker);
+            return { element, marker };
+        });
+        normal.before(panel);
+        panel.append(normal, editor);
+        const observer = new MutationObserver(mutations => {
+            if (mutations.some(mutation => mutation.target !== panel || mutation.type === 'childList')) scheduleFloatingUpdate();
+        });
+        observer.observe(panel, { childList: true, subtree: true, attributes: true,
+            attributeFilter: ['class', 'style', 'hidden', 'disabled', 'aria-disabled'] });
+        floatingActions = { panel, controls, observer, messageEl, message: chat[index], chat };
+        if (typeof panel.showPopover === 'function') {
+            panel.setAttribute('popover', 'manual');
+            panel.showPopover();
+        }
+        document.getElementById(ACTIONS_ID)?.setAttribute('aria-expanded', 'true');
+        updateMessageActions();
+        selector.focus({ preventScroll: true });
+    }
+
+    function updateMessageActions() {
+        const button = ensureMessageActionsButton();
+        const chatEl = document.getElementById('chat');
+        if (!button) return;
+        const rect = chatEl?.getBoundingClientRect();
+        const viewport = window.visualViewport;
+        const viewportLeft = viewport?.offsetLeft || 0;
+        const viewportTop = viewport?.offsetTop || 0;
+        const right = Math.min(viewportLeft + (viewport?.width || window.innerWidth) - 8, (rect?.right || 0) - 12);
+        const bottom = Math.min(viewportTop + (viewport?.height || window.innerHeight) - 8, (rect?.bottom || 0) - 12);
+        const left = Math.max(viewportLeft + 8, (rect?.left || 0) + 8);
+        const top = Math.max(viewportTop + 8, (rect?.top || 0) + 8);
+        const chat = getChatArray();
+        const visible = hasActiveChat() && chat.length > 0 && rect?.width > 0 && rect?.height > 0
+            && right - left >= 46 && bottom - top >= 110;
+        button.classList.toggle('stlb-hidden', !visible);
+        if (!visible) { closeMessageActions(); return; }
+        const jump = document.getElementById(JUMP_BOTTOM_ID);
+        const jumpVisible = jump && !jump.classList.contains('stlb-hidden');
+        const buttonBottom = bottom - (jumpVisible ? jump.offsetHeight + 8 : 0);
+        button.style.left = `${right}px`;
+        button.style.top = `${buttonBottom}px`;
+
+        const state = floatingActions;
+        if (!state) return;
+        const index = chat.length - 1 - actionsOffset;
+        // Never silently retarget an open delete/edit menu after a new reply,
+        // deletion, reordering, or chat switch.
+        if (state.chat !== chat || state.message !== chat[index] || !state.messageEl.isConnected
+            || Number(state.messageEl.getAttribute('mesid')) !== index
+            || state.controls.some(({ element }) => !state.panel.contains(element))) {
+            closeMessageActions();
+            return;
+        }
+        const panelBottom = buttonBottom - button.offsetHeight - 8;
+        const styles = {
+            width: `${Math.min(360, right - left)}px`,
+            maxHeight: `${Math.max(0, panelBottom - top)}px`,
+        };
+        // Only write changed values: the panel observer also watches native
+        // inline display changes when the editor / extension menu is toggled.
+        for (const [key, value] of Object.entries(styles)) {
+            if (state.panel.style[key] !== value) state.panel.style[key] = value;
+        }
+        const panelRect = state.panel.getBoundingClientRect();
+        const panelLeft = `${right - panelRect.width}px`;
+        const panelTop = `${Math.max(top, panelBottom - panelRect.height)}px`;
+        state.panel.style.left = panelLeft;
+        state.panel.style.top = panelTop;
+    }
+
+    function onActionsOutsideClick(e) {
+        if (!floatingActions || !(e.target instanceof Element)) return;
+        // Keep save/cancel/delete within reach while typing in the native editor.
+        if (e.target.closest('.edit_textarea, .reasoning_edit_textarea')?.closest('.mes') === floatingActions.messageEl) return;
+        if (!e.target.closest(`#${ACTIONS_ID}, #${ACTIONS_PANEL_ID}`)) closeMessageActions();
+    }
+
+    function onActionsKeydown(e) {
+        if (e.key !== 'Escape' || !floatingActions) return;
+        if (!(e.target instanceof Element)) return;
+        if (e.target !== document.body && !e.target.closest(`#${ACTIONS_ID}, #${ACTIONS_PANEL_ID}`)) return;
+        e.preventDefault();
+        e.stopPropagation();
+        closeMessageActions(true);
+    }
+
     function refreshPinButtons() {
         const pinned = new Set(getPinRecords().map(record => record.uid));
         document.querySelectorAll(`#chat .mes[mesid] .${PIN_BTN_CLASS}`).forEach(button => {
@@ -971,6 +1152,14 @@ jQuery(async function () {
                             <input type="checkbox" id="stlb-set-jump" ${s.showJumpBottom ? 'checked' : ''} aria-labelledby="stlb-label-jump" aria-describedby="stlb-desc-jump">
                         </div>
 
+                        <div class="stlb_set_row stlb_set_toggle">
+                            <div class="stlb_set_text">
+                                <div class="stlb_set_label" id="stlb-label-actions">${escapeHtml(t('set.showMessageActions'))}</div>
+                                <div class="stlb_set_desc" id="stlb-desc-actions">${escapeHtml(t('set.showMessageActionsDesc'))}</div>
+                            </div>
+                            <input type="checkbox" id="stlb-set-actions" ${s.showMessageActions ? 'checked' : ''} aria-labelledby="stlb-label-actions" aria-describedby="stlb-desc-actions">
+                        </div>
+
                         <div class="stlb_settings_section">
                             <div class="stlb_settings_heading">${escapeHtml(t('set.summaryHeading'))}</div>
 
@@ -1028,6 +1217,13 @@ jQuery(async function () {
             save();
             if (this.checked) updateJumpBottomButton();
             else document.getElementById(JUMP_BOTTOM_ID)?.remove();
+            updateMessageActions();
+        });
+        $set.on('change', '#stlb-set-actions', function () {
+            syncToggleState(this);
+            getSettings().showMessageActions = this.checked;
+            save();
+            updateMessageActions();
         });
         $set.on('change', '#stlb-set-summary', function () { syncToggleState(this); getSettings().summaryDefault = this.checked; save(); });
         $set.on('input', '#stlb-set-prompt', function () { getSettings().summaryPrompt = this.value; save(); });
@@ -1067,19 +1263,29 @@ jQuery(async function () {
 
     document.addEventListener('click', onChatClick, true);
     document.addEventListener('keydown', onChatKeydown, true);
+    document.addEventListener('click', onActionsOutsideClick);
+    document.addEventListener('keydown', onActionsKeydown, true);
     const chatEl = document.getElementById('chat');
     ensureJumpBottomButton();
-    const scheduleJumpBottomUpdate = () => {
+    const scheduleFloatingUpdate = () => {
         if (frameRequest || disposed) return;
         frameRequest = requestAnimationFrame(() => {
             frameRequest = 0;
-            if (!disposed) updateJumpBottomButton();
+            if (!disposed) {
+                updateJumpBottomButton();
+                updateMessageActions();
+            }
         });
     };
+    const scheduleJumpBottomUpdate = scheduleFloatingUpdate;
     const onChatScroll = scheduleJumpBottomUpdate;
     const onWindowResize = scheduleJumpBottomUpdate;
     chatEl?.addEventListener('scroll', onChatScroll, { passive: true });
     window.addEventListener('resize', onWindowResize, { passive: true });
+    window.visualViewport?.addEventListener('resize', onWindowResize, { passive: true });
+    window.visualViewport?.addEventListener('scroll', onWindowResize, { passive: true });
+    const chatResizeObserver = typeof ResizeObserver === 'function' ? new ResizeObserver(scheduleFloatingUpdate) : null;
+    if (chatEl) chatResizeObserver?.observe(chatEl);
 
     const reinjectDebounced = (() => {
         let tmr = null;
@@ -1093,6 +1299,7 @@ jQuery(async function () {
                 injectAllButtons();
                 renderPinNavigator();
                 updateJumpBottomButton();
+                updateMessageActions();
             }, 80);
         };
     })();
@@ -1129,8 +1336,10 @@ jQuery(async function () {
     on(event_types.MESSAGE_SWIPED, () => { reinjectDebounced(); reconcileDebounced(); });
     on(event_types.MESSAGE_EDITED, () => { reinjectDebounced(); renderPinNavigator(); });
     on(event_types.MESSAGE_UPDATED, () => { reinjectDebounced(); renderPinNavigator(); });
-    on(event_types.MESSAGE_DELETED, reconcileDebounced);
+    on(event_types.MESSAGE_DELETED, () => { reconcileDebounced(); scheduleFloatingUpdate(); });
     on(event_types.CHAT_CHANGED, () => {
+        closeMessageActions();
+        actionsOffset = 0;
         jumpToken++;
         activePinIndex = 0;
         reinjectDebounced();
@@ -1216,6 +1425,7 @@ jQuery(async function () {
         injectAllButtons();
         reconcilePins();
         updateJumpBottomButton();
+        updateMessageActions();
     }, 600);
 
     console.log(`${LOG_PREFIX} initialized.`);
@@ -1230,19 +1440,26 @@ jQuery(async function () {
                 try { eventSource.removeListener?.(evt, fn); } catch (_) { /* noop */ }
             });
             jumpToken++;
+            closeMessageActions();
             chatObserver.disconnect();
+            chatResizeObserver?.disconnect();
             timers.forEach(timer => clearTimeout(timer));
             timers.clear();
             if (frameRequest) cancelAnimationFrame(frameRequest);
             frameRequest = 0;
             document.removeEventListener('click', onChatClick, true);
             document.removeEventListener('keydown', onChatKeydown, true);
+            document.removeEventListener('click', onActionsOutsideClick);
+            document.removeEventListener('keydown', onActionsKeydown, true);
             chatEl?.removeEventListener('scroll', onChatScroll);
             window.removeEventListener('resize', onWindowResize);
+            window.visualViewport?.removeEventListener('resize', onWindowResize);
+            window.visualViewport?.removeEventListener('scroll', onWindowResize);
             document.querySelectorAll(`.${BTN_CLASS}, .${PIN_BTN_CLASS}`).forEach(el => el.remove());
             document.querySelectorAll('.stlb-pin-highlight').forEach(el => el.classList.remove('stlb-pin-highlight'));
             document.getElementById(NAV_ID)?.remove();
             document.getElementById(JUMP_BOTTOM_ID)?.remove();
+            document.getElementById(ACTIONS_ID)?.remove();
             $('#stlb-settings').remove();
         } catch (e) { console.error(`${LOG_PREFIX} dispose error`, e); }
         if (window.__stLiteBranchInstance === instanceToken) {
