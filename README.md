@@ -18,7 +18,9 @@ Creating a branch never removes messages from the original chat. Pinning does st
   needed, and pins stay attached when surrounding messages move or are deleted.
 - **Floating message actions.** Open the native controls for the last or
   second-to-last message from a floating button next to the jump-down arrow,
-  including the editor and the `⋯` menu with extension actions.
+  including the editor and the `⋯` menu with extension actions. The panel uses
+  theme colors with its own protected layout and compact, touch-sized controls
+  on phones.
 - **Pick how many messages** to carry over — a dialog with a live preview
   ("will copy messages #120–#170"), pre-filled from your default (50).
 - **One-click mode.** Turn off the dialog in settings and the button branches
@@ -44,6 +46,8 @@ Creating a branch never removes messages from the original chat. Pinning does st
   with save, cancel, duplicate, delete, and move controls. Close the panel with
   `×`, Escape, or a click outside it. It closes if its target changes, so an
   already-open menu never silently switches to a different message.
+  Drag the circle with a finger or mouse to place it anywhere on screen; its
+  position is remembered on this device and stays within reach after resizing.
 - **Slash command:**
   - `/litebranch` — last N (your default) from the last message.
   - `/litebranch 80` — last 80 messages.

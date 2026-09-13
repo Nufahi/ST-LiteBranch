@@ -666,8 +666,8 @@ jQuery(async function () {
         const visible = hasActiveChat() && rect.width > 0 && rect.height > 0 && distanceFromBottom > 160;
         button.classList.toggle('stlb-hidden', !visible);
         if (!visible) return;
-        button.style.left = `${Math.min(window.innerWidth - 8, rect.right - 12)}px`;
-        button.style.top = `${Math.min(window.innerHeight - 8, rect.bottom - 12)}px`;
+        setFloatingStyle(button, 'left', `${Math.min(window.innerWidth - 8, rect.right - 12)}px`);
+        setFloatingStyle(button, 'top', `${Math.min(window.innerHeight - 8, rect.bottom - 12)}px`);
     }
 
     function jumpToBottom() {
@@ -685,13 +685,83 @@ jQuery(async function () {
     // =====================================================================
     const ACTIONS_ID = 'stlb-message-actions';
     const ACTIONS_PANEL_ID = 'stlb-message-actions-panel';
+    const ACTIONS_POSITION_KEY = 'stlb-message-actions-position';
     let actionsOffset = 0;
     let floatingActions = null;
+    let actionsDrag = null;
+    let suppressActionsClick = false;
+    let actionsPosition = null;
+    try {
+        const position = JSON.parse(localStorage.getItem(ACTIONS_POSITION_KEY));
+        if (Number.isFinite(position?.x) && Number.isFinite(position?.y)) {
+            actionsPosition = { x: clamp(position.x, 0, 1), y: clamp(position.y, 0, 1) };
+        }
+    } catch (_) { /* Device-local storage may be unavailable. */ }
+
+    // Geometry is owned by LiteBranch CSS, even with theme !important rules.
+    function setFloatingStyle(element, key, value) {
+        const property = `--stlb-floating-${key}`;
+        if (element.style.getPropertyValue(property) !== value) element.style.setProperty(property, value);
+    }
+
+    function actionsViewport() {
+        const viewport = window.visualViewport;
+        const left = (viewport?.offsetLeft || 0) + 8;
+        const top = (viewport?.offsetTop || 0) + 8;
+        return { left, top,
+            right: left + (viewport?.width || window.innerWidth) - 16,
+            bottom: top + (viewport?.height || window.innerHeight) - 16 };
+    }
+
+    function onActionsPointerDown(event) {
+        if (!event.isPrimary || event.button !== 0 || actionsDrag) return;
+        const button = event.currentTarget;
+        const rect = button.getBoundingClientRect();
+        suppressActionsClick = false;
+        actionsDrag = { id: event.pointerId, startX: event.clientX, startY: event.clientY,
+            right: rect.right, bottom: rect.bottom, x: rect.right, y: rect.bottom, moved: false };
+        button.setPointerCapture(event.pointerId);
+    }
+
+    function onActionsPointerMove(event) {
+        const drag = actionsDrag;
+        if (!drag || drag.id !== event.pointerId) return;
+        const dx = event.clientX - drag.startX;
+        const dy = event.clientY - drag.startY;
+        if (!drag.moved && Math.hypot(dx, dy) < 6) return;
+        drag.moved = true;
+        drag.x = drag.right + dx;
+        drag.y = drag.bottom + dy;
+        event.currentTarget.classList.add('stlb-dragging');
+        scheduleFloatingUpdate();
+    }
+
+    function onActionsPointerEnd(event) {
+        const drag = actionsDrag;
+        if (!drag || drag.id !== event.pointerId) return;
+        actionsDrag = null;
+        const button = event.currentTarget;
+        button.classList.remove('stlb-dragging');
+        suppressActionsClick = drag.moved;
+        if (drag.moved && event.type === 'pointerup') {
+            const viewport = actionsViewport();
+            const width = viewport.right - viewport.left - button.offsetWidth;
+            const height = viewport.bottom - viewport.top - button.offsetHeight;
+            actionsPosition = {
+                x: clamp((drag.x - viewport.left - button.offsetWidth) / Math.max(1, width), 0, 1),
+                y: clamp((drag.y - viewport.top - button.offsetHeight) / Math.max(1, height), 0, 1),
+            };
+            try { localStorage.setItem(ACTIONS_POSITION_KEY, JSON.stringify(actionsPosition)); } catch (_) { /* noop */ }
+        }
+        if (button.hasPointerCapture(event.pointerId)) button.releasePointerCapture(event.pointerId);
+        scheduleFloatingUpdate();
+    }
 
     function ensureMessageActionsButton() {
         let button = document.getElementById(ACTIONS_ID);
         if (!getSettings().showMessageActions) {
             closeMessageActions();
+            actionsDrag = null;
             button?.remove();
             return null;
         }
@@ -701,14 +771,21 @@ jQuery(async function () {
         button.type = 'button';
         button.className = 'stlb-message-actions stlb-hidden interactable';
         button.innerHTML = '<i class="fa-solid fa-pen-to-square" aria-hidden="true"></i>';
-        button.title = t('actions.open');
-        button.setAttribute('aria-label', button.title);
+        button.title = `${t('actions.open')} · ${t('actions.drag')}`;
+        button.setAttribute('aria-label', t('actions.open'));
         button.setAttribute('aria-expanded', 'false');
         button.setAttribute('aria-controls', ACTIONS_PANEL_ID);
-        button.addEventListener('click', () => {
+        button.addEventListener('click', event => {
+            if (suppressActionsClick && event.detail !== 0) { suppressActionsClick = false; return; }
+            suppressActionsClick = false;
             if (floatingActions) closeMessageActions();
             else openMessageActions();
         });
+        button.addEventListener('pointerdown', onActionsPointerDown);
+        button.addEventListener('pointermove', onActionsPointerMove);
+        button.addEventListener('pointerup', onActionsPointerEnd);
+        button.addEventListener('pointercancel', onActionsPointerEnd);
+        button.addEventListener('lostpointercapture', onActionsPointerEnd);
         document.body.append(button);
         return button;
     }
@@ -750,7 +827,7 @@ jQuery(async function () {
         panel.setAttribute('aria-label', t('actions.open'));
         panel.innerHTML = `
             <div class="stlb-actions-heading">
-                <select class="stlb-actions-target text_pole" aria-label="${escapeHtml(t('actions.target'))}">
+                <select class="stlb-actions-target" aria-label="${escapeHtml(t('actions.target'))}">
                     <option value="0">${escapeHtml(t('actions.last'))}</option>
                     <option value="1" ${chat.length < 2 ? 'disabled' : ''}>${escapeHtml(t('actions.previous'))}</option>
                 </select>
@@ -794,13 +871,11 @@ jQuery(async function () {
         const chatEl = document.getElementById('chat');
         if (!button) return;
         const rect = chatEl?.getBoundingClientRect();
-        const viewport = window.visualViewport;
-        const viewportLeft = viewport?.offsetLeft || 0;
-        const viewportTop = viewport?.offsetTop || 0;
-        const right = Math.min(viewportLeft + (viewport?.width || window.innerWidth) - 8, (rect?.right || 0) - 12);
-        const bottom = Math.min(viewportTop + (viewport?.height || window.innerHeight) - 8, (rect?.bottom || 0) - 12);
-        const left = Math.max(viewportLeft + 8, (rect?.left || 0) + 8);
-        const top = Math.max(viewportTop + 8, (rect?.top || 0) + 8);
+        const viewport = actionsViewport();
+        const right = Math.min(viewport.right, (rect?.right || 0) - 12);
+        const bottom = Math.min(viewport.bottom, (rect?.bottom || 0) - 12);
+        const left = Math.max(viewport.left, (rect?.left || 0) + 8);
+        const top = Math.max(viewport.top, (rect?.top || 0) + 8);
         const chat = getChatArray();
         const visible = hasActiveChat() && chat.length > 0 && rect?.width > 0 && rect?.height > 0
             && right - left >= 46 && bottom - top >= 110;
@@ -808,9 +883,18 @@ jQuery(async function () {
         if (!visible) { closeMessageActions(); return; }
         const jump = document.getElementById(JUMP_BOTTOM_ID);
         const jumpVisible = jump && !jump.classList.contains('stlb-hidden');
-        const buttonBottom = bottom - (jumpVisible ? jump.offsetHeight + 8 : 0);
-        button.style.left = `${right}px`;
-        button.style.top = `${buttonBottom}px`;
+        let buttonRight = right;
+        let buttonBottom = bottom - (jumpVisible ? jump.offsetHeight + 8 : 0);
+        if (actionsPosition || actionsDrag?.moved) {
+            const minX = viewport.left + button.offsetWidth;
+            const minY = viewport.top + button.offsetHeight;
+            buttonRight = actionsDrag?.moved ? actionsDrag.x : minX + actionsPosition.x * (viewport.right - minX);
+            buttonBottom = actionsDrag?.moved ? actionsDrag.y : minY + actionsPosition.y * (viewport.bottom - minY);
+            buttonRight = clamp(buttonRight, minX, viewport.right);
+            buttonBottom = clamp(buttonBottom, minY, viewport.bottom);
+        }
+        setFloatingStyle(button, 'left', `${buttonRight}px`);
+        setFloatingStyle(button, 'top', `${buttonBottom}px`);
 
         const state = floatingActions;
         if (!state) return;
@@ -823,21 +907,25 @@ jQuery(async function () {
             closeMessageActions();
             return;
         }
+        const bounds = actionsPosition || actionsDrag?.moved ? viewport : { left, top, right, bottom };
         const panelBottom = buttonBottom - button.offsetHeight - 8;
+        const spaceAbove = Math.max(0, panelBottom - bounds.top);
+        const spaceBelow = Math.max(0, bounds.bottom - buttonBottom - 8);
+        const below = spaceBelow > spaceAbove;
         const styles = {
-            width: `${Math.min(360, right - left)}px`,
-            maxHeight: `${Math.max(0, panelBottom - top)}px`,
+            width: `${Math.min(window.matchMedia('(max-width: 600px)').matches ? 252 : 300, bounds.right - bounds.left)}px`,
+            'max-height': `${below ? spaceBelow : spaceAbove}px`,
         };
         // Only write changed values: the panel observer also watches native
         // inline display changes when the editor / extension menu is toggled.
         for (const [key, value] of Object.entries(styles)) {
-            if (state.panel.style[key] !== value) state.panel.style[key] = value;
+            setFloatingStyle(state.panel, key, value);
         }
         const panelRect = state.panel.getBoundingClientRect();
-        const panelLeft = `${right - panelRect.width}px`;
-        const panelTop = `${Math.max(top, panelBottom - panelRect.height)}px`;
-        state.panel.style.left = panelLeft;
-        state.panel.style.top = panelTop;
+        const panelLeft = `${clamp(buttonRight - panelRect.width, bounds.left, bounds.right - panelRect.width)}px`;
+        const panelTop = `${below ? buttonBottom + 8 : Math.max(bounds.top, panelBottom - panelRect.height)}px`;
+        setFloatingStyle(state.panel, 'left', panelLeft);
+        setFloatingStyle(state.panel, 'top', panelTop);
     }
 
     function onActionsOutsideClick(e) {
@@ -1441,6 +1529,7 @@ jQuery(async function () {
             });
             jumpToken++;
             closeMessageActions();
+            actionsDrag = null;
             chatObserver.disconnect();
             chatResizeObserver?.disconnect();
             timers.forEach(timer => clearTimeout(timer));

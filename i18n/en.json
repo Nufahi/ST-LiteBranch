@@ -17,9 +17,10 @@
     "chat.jumpBottom": "Jump to latest message",
 
     "actions.open": "Recent message actions",
+    "actions.drag": "Drag to reposition",
     "actions.target": "Message to control",
     "actions.last": "Last message",
-    "actions.previous": "Second-to-last message",
+    "actions.previous": "Second-to-last",
     "actions.close": "Close message actions",
     "actions.unavailable": "This message's controls are not loaded. Scroll to the bottom of the chat and try again.",
 
