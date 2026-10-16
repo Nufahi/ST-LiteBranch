@@ -25,14 +25,19 @@ Creating a branch never removes messages from the original chat. Pinning does st
   ("will copy messages #120–#170"), pre-filled from your default (50).
 - **One-click mode.** Turn off the dialog in settings and the button branches
   instantly using your default count.
-- **Optional AI summary.** Ask the model to summarize everything *before* the
-  carried-over messages; the recap is pinned as the first message of the branch
-  so context isn't lost. Off by default; prompt and history limit are
-  configurable.
+- **Optional AI summary.** Summarize the recent tail or process all omitted
+  history chronologically in stages. Choose the character budget per request,
+  see message coverage and request count, and optionally preview/edit the final
+  recap before saving. The recap becomes the first message with a navigation pin.
+- **Lorebooks.** Use SillyTavern's native World Info activation during summary
+  generation, enabled by default. Uses matching entries and configured budgets.
+- **Return to source.** A button above the chat opens the immediate parent of
+  the current branch, in both solo and group chats.
 - **Slash command** `/litebranch` for Quick Replies and automation.
 - **English / Русский** UI (follows SillyTavern's language setting).
-- **Group chat pins.** Pinning and navigation work in group chats too; creating
-  lightweight branches remains limited to single-character chats.
+- **Group chats.** Branching, summaries, pinning and navigation work in group
+  chats too. A branch is added to the same group's chat history, preserving
+  message authors, avatars and group settings.
 
 ## Usage
 
@@ -59,15 +64,59 @@ Creating a branch never removes messages from the original chat. Pinning does st
 
 ## How it works
 
-The branch is saved as a new chat file for the current character via
-SillyTavern's `POST /api/chats/save`, containing only the sliced messages
-(plus an optional summary as the first message). Metadata links back to the
-source chat (`main_chat`). Then `openCharacterChat` switches you into it.
-Because the new file is a few hundred KB instead of tens of MB, rendering and
-saving become instant again.
+The branch is saved as a new chat file via SillyTavern's `POST /api/chats/save`
+for solo chats or `POST /api/chats/group/save` for groups, containing only the
+sliced messages (plus an optional summary as the first message). Metadata links
+back to the source chat (`main_chat`). Group branches are registered in the
+existing group's history before `openGroupChat` opens them; solo branches use
+`openCharacterChat`. Both legacy group metadata and the newer JSONL header
+format are supported. Reducing the file size reduces the work required to
+render and save it; the improvement depends on message sizes and other extensions.
+
+### Summary workflow
+
+Enable the summary in the branch dialog or extension defaults:
+
+1. **Recent omitted history:** one request, taking the latest text that fits the
+   budget (12,000 characters by default). Coverage shows included messages,
+   partially included messages, messages outside the budget, and skipped
+   hidden/system/empty messages.
+2. **All omitted history — in stages:** split older history into chronological
+   chunks of the chosen character size. Each request updates the previous recap
+   with the next chunk. Oversized messages are split too. A progress indicator
+   shows the current stage; cancel stops after the in-flight request completes.
+3. **Preview:** optional, off by default. Review and edit the final recap, then
+   confirm creation. Cancelling the preview saves no branch. Generation errors
+   also stop creation rather than silently making a branch without its recap.
+4. **Lorebooks and Author's Note:** passed through the native `skipWIAN` option.
+   World Info activation follows the `quiet` trigger, keys and budgets, not a
+   full export of every book. The exact scope of `skipWIAN` depends on the ST
+   version; it is not an isolation switch for all other prompt context.
+
+Choices in the branch dialog apply to that branch. Extension settings save the
+defaults, also used by `/litebranch`. The default recap follows the transcript's
+language; customize the prompt to request another language or structure.
 
 ## Limitations
 
-- **Solo (single-character) chats only.** Group chats show a notice and are
-  skipped for now.
 - The AI summary uses your current connection/preset via `generateQuietPrompt`.
+- The character budget controls transcript text per request, not total model
+  context or tokens. Instructions, the previous recap, lorebooks and native
+  SillyTavern prompt context are additional. Choose a budget that fits your model.
+- Coverage measures text submitted for summarization, not facts guaranteed to
+  survive model compression or provider truncation. Staged mode processes all
+  eligible older messages but remains a lossy summary, requiring multiple requests.
+- Pins are navigation bookmarks and do not keep messages in model context forever.
+- Returning to a deleted or renamed source chat requires opening it manually.
+- Group branches share their group's members and settings. They are separate
+  conversations, not independent copies of the group configuration.
+
+## Development checks
+
+Modules: `index.js` (entry point), `ui.js` (interface and event lifecycle),
+`branch.js` (chat storage and navigation), `summary.js` (planning, generation,
+preview), `settings.js` (defaults and migration). No build step is needed.
+
+Run `npm test` or `node --test tests/*.test.cjs` (Node.js 18+).
+The regression tests simulate SillyTavern's context and HTTP APIs; UI and live
+model behavior still need a smoke test in SillyTavern.
