@@ -48,7 +48,6 @@
     "summary.cancelling": "Cancelling after the current request finishes…",
     "summary.cancelled": "Branch creation cancelled.",
     "summary.badBudget": "Enter a finite character count of at least 500.",
-    "source.back": "Return to source chat",
     "source.failed": "Could not open the source chat. It may have been deleted or renamed.",
     "dlg.create": "Create branch",
     "dlg.cancel": "Cancel",

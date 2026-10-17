@@ -591,6 +591,4 @@
 }
 .stlb-summary-progress span { min-width: 0; overflow-wrap: anywhere; flex: 1; }
 .stlb-summary-progress button { min-height: 44px; flex-shrink: 0; }
-#stlb-source { align-self: flex-start; max-width: 100%; white-space: normal; min-height: 36px; }
-#stlb-source:focus-visible,
 .stlb-summary-progress button:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }

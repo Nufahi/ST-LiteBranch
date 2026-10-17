@@ -107,7 +107,7 @@ export async function initialize() {
         </svg>`;
 
     const summaryService = createSummaryService({ ctx, t, escapeHtml });
-    const { createBranch, captureSource, isSameSource, hasOpenChat, getChatArray, computeRange, returnToSource }
+    const { createBranch, captureSource, isSameSource, hasOpenChat, getChatArray, computeRange }
         = createBranchService({ ctx, getSettings, summaryService, toast, t, isDisposed: () => disposed });
 
     // =====================================================================
@@ -216,26 +216,6 @@ export async function initialize() {
         } else {
             await createBranch(mesId, s.defaultCount, s.summaryDefault);
         }
-    }
-
-    function renderSourceButton() {
-        const origin = ctx().chatMetadata?.litebranch;
-        let button = document.getElementById('stlb-source');
-        if (!origin?.source || origin.source === (ctx().getCurrentChatId?.() ?? ctx().chatId)) {
-            button?.remove(); return;
-        }
-        if (!button) {
-            button = document.createElement('button');
-            button.id = 'stlb-source';
-            button.className = 'menu_button';
-            button.onclick = async () => {
-                button.disabled = true;
-                try { await returnToSource(); } finally { button.disabled = false; renderSourceButton(); }
-            };
-            document.getElementById('chat')?.before(button);
-        }
-        button.textContent = `↩ ${t('source.back')}`;
-        button.title = origin.source;
     }
 
     // =====================================================================
@@ -1118,7 +1098,6 @@ export async function initialize() {
             tmr = later(() => {
                 tmr = null;
                 injectAllButtons();
-                renderSourceButton();
                 renderPinNavigator();
                 updateJumpBottomButton();
                 updateMessageActions();
@@ -1160,7 +1139,6 @@ export async function initialize() {
     on(event_types.MESSAGE_UPDATED, () => { reinjectDebounced(); renderPinNavigator(); });
     on(event_types.MESSAGE_DELETED, () => { reconcileDebounced(); scheduleFloatingUpdate(); });
     on(event_types.CHAT_CHANGED, () => {
-        renderSourceButton();
         closeMessageActions();
         actionsOffset = 0;
         jumpToken++;
@@ -1242,7 +1220,6 @@ export async function initialize() {
     // INIT
     // =====================================================================
     addSettingsCard();
-    renderSourceButton();
     ensurePinNavigator();
     ensureJumpBottomButton();
     later(() => {
@@ -1283,7 +1260,6 @@ export async function initialize() {
             document.querySelectorAll(`.${BTN_CLASS}, .${PIN_BTN_CLASS}`).forEach(el => el.remove());
             document.querySelectorAll('.stlb-pin-highlight').forEach(el => el.classList.remove('stlb-pin-highlight'));
             document.getElementById(NAV_ID)?.remove();
-            document.getElementById('stlb-source')?.remove();
             document.getElementById(JUMP_BOTTOM_ID)?.remove();
             document.getElementById(ACTIONS_ID)?.remove();
             $('#stlb-settings').remove();
